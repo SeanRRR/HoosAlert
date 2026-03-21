@@ -1,4 +1,5 @@
 from fastapi import WebSocket
+import json
 
 class ConnectionManager:
     def __init__(self):
@@ -12,7 +13,6 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        data = json.dumps(message)
         for connection in self.active_connections:
-            await connection.send_json(message)
-
-manager = ConnectionManager()
+            await connection.send_text(data)

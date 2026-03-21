@@ -26,7 +26,6 @@ async def health():
 
 @app.post("/submit")
 async def submit_report(report: Report):
-    # Call internal scoring logic
     ai_result = score_incident(report.description)
     severity = validate_score(report.description, ai_result["severity"])
     incident_data = {
@@ -35,7 +34,6 @@ async def submit_report(report: Report):
         "location": report.location,
         "severity": severity
     }
-    # Broadcast to WebSocket clients
     await manager.broadcast(incident_data)
     return {
         "received": report,
@@ -55,9 +53,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            # Handle incoming messages if needed
-    except:
+            await websocket.receive_text()
+    except Exception:
         manager.disconnect(websocket)
 
 if __name__ == "__main__":
