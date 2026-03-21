@@ -1,14 +1,15 @@
-# Frontend Dockerfile (Node.js with TypeScript)
-FROM node:18-alpine
+# Frontend Dockerfile (Next.js)
+FROM node:20-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 
-RUN npm run build
+ENV NEXT_TELEMETRY_DISABLED=1
 
 EXPOSE 3000
-CMD ["npm", "start"]
+
+CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0", "-p", "3000"]
