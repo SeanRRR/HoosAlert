@@ -1,0 +1,62 @@
+[
+  {
+    "id": "1",
+    "source": "uva_official",
+    "timestamp": "2026-03-21T14:30:00Z",
+    "title": "Suspicious package reported near Old Cabell Hall",
+    "description": "A suspicious unattended bag was found in the vestibule of Old Cabell Hall. PD is on scene.",
+    "location": "Old Cabell Hall",
+    "lat": 38.0313,
+    "lng": -78.5031,
+    "category": "security",
+    "severity": 4
+  },
+  {
+    "id": "2",
+    "source": "uva_official",
+    "timestamp": "2026-03-21T15:05:00Z",
+    "title": "Minor vehicle collision on Emmet St",
+    "description": "Two cars collided at the intersection of Emmet St and University Ave. No injuries reported.",
+    "location": "Emmet St & University Ave",
+    "lat": 38.0305,
+    "lng": -78.5053,
+    "category": "traffic",
+    "severity": 2
+  },
+  {
+    "id": "3",
+    "source": "uva_official",
+    "timestamp": "2026-03-21T15:45:00Z",
+    "title": "Medical aid rendered at Corner",
+    "description": "First responders provided medical aid to a student experiencing severe dehydration near The Corner.",
+    "location": "The Corner",
+    "lat": 38.0341,
+    "lng": -78.5039,
+    "category": "medical",
+    "severity": 4
+  },
+  {
+    "id": "4",
+    "source": "uva_official",
+    "timestamp": "2026-03-21T16:10:00Z",
+    "title": "Small fire extinguished in dorm kitchen",
+    "description": "A cooking fire in a dormitory kitchen was quickly contained and extinguished. No injuries.",
+    "location": "Alderman Rd Dorm",
+    "lat": 38.0290,
+    "lng": -78.4987,
+    "category": "fire",
+    "severity": 5
+  },
+  {
+    "id": "5",
+    "source": "uva_official",
+    "timestamp": "2026-03-21T16:35:00Z",
+    "title": "Lost pet reported near the Rotunda",
+    "description": "A lost service dog was reported near the Rotunda and safely reunited with its owner.",
+    "location": "Rotunda",
+    "lat": 38.0334,
+    "lng": -78.5032,
+    "category": "general",
+    "severity": 1
+  }
+]
