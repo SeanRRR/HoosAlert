@@ -16,3 +16,6 @@ class ConnectionManager:
         data = json.dumps(message)
         for connection in self.active_connections:
             await connection.send_text(data)
+
+
+manager = ConnectionManager()
