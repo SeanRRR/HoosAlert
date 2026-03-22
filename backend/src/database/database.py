@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # Support both env names so local setups do not silently break.
@@ -55,9 +56,60 @@ async def save_incident(incident: dict[str, Any]) -> str:
     return str(result.inserted_id)
 
 
+def _serialize_incident_record(record: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(record)
+    mongo_id = payload.pop("_id", None)
+
+    record_id = payload.get("id")
+    if record_id is None and mongo_id is not None:
+        payload["id"] = str(mongo_id)
+    elif record_id is not None:
+        payload["id"] = str(record_id)
+
+    return payload
+
+
 async def get_incidents(limit: int = 100) -> list[dict[str, Any]]:
-    cursor = db[INCIDENTS_COLLECTION].find().limit(limit)
-    return await cursor.to_list(length=limit)
+    safe_limit = max(1, min(limit, 1000))
+    cursor = db[INCIDENTS_COLLECTION].find().sort([("_id", -1)]).limit(safe_limit)
+    records = await cursor.to_list(length=safe_limit)
+    return [_serialize_incident_record(record) for record in records]
+
+
+async def get_due_incidents_for_rescoring(now_iso: str, limit: int = 50) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 500))
+    cursor = (
+        db[INCIDENTS_COLLECTION]
+        .find({"next_rescore_at": {"$lte": now_iso}})
+        .sort([("next_rescore_at", 1)])
+        .limit(safe_limit)
+    )
+    records = await cursor.to_list(length=safe_limit)
+    return [_serialize_incident_record(record) for record in records]
+
+
+def _incident_id_filter(incident_id: str) -> dict[str, Any]:
+    filters: list[dict[str, Any]] = [{"id": str(incident_id)}]
+    try:
+        filters.insert(0, {"_id": ObjectId(str(incident_id))})
+    except Exception:
+        pass
+
+    if len(filters) == 1:
+        return filters[0]
+    return {"$or": filters}
+
+
+async def update_incident_fields(incident_id: str, fields: dict[str, Any]) -> bool:
+    payload = dict(fields)
+    payload.pop("id", None)
+    payload.pop("_id", None)
+
+    result = await db[INCIDENTS_COLLECTION].update_one(
+        _incident_id_filter(incident_id),
+        {"$set": payload},
+    )
+    return result.matched_count > 0
 
 
 def _parse_incident_time(value: Any) -> datetime | None:

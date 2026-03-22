@@ -229,6 +229,11 @@ export default function ReportPage() {
     computingId: computingId.trim(),
     }
 
+    if (selectedLocationKey !== "other" && !resolvedCoords) {
+      alert("Selected location does not have coordinates yet. Please choose 'Other' and pin on map.")
+      return
+    }
+
     if (!payload.incidentType || !payload.location || !payload.computingId) {
       alert("Please complete all required fields.")
       return

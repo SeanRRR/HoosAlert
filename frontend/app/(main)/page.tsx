@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/sidebar";
 
 type IncidentPayload = {
   id?: string | number;
+  _id?: string | number;
   title?: string;
   location?: string;
   latitude?: number | null;
@@ -34,26 +35,7 @@ const IncidentLiveMap = dynamic(() => import("@/components/incident-live-map"), 
   loading: () => <div className="h-full w-full rounded-xl border p-4">Loading map...</div>,
 });
 
-const initialReports: MapReport[] = [
-  {
-    id: "seed-1",
-    position: [38.0336, -78.508],
-    type: "Theft",
-    location: "Central Grounds",
-    severity: 3,
-    riskLabel: "security",
-    confidence: null,
-  },
-  {
-    id: "seed-2",
-    position: [38.0357, -78.5034],
-    type: "Suspicious Activity",
-    location: "Alderman Area",
-    severity: 4,
-    riskLabel: "security",
-    confidence: null,
-  },
-];
+const initialReports: MapReport[] = [];
 
 function toCoords(incident: IncidentPayload): [number, number] | null {
   const latitude = typeof incident.latitude === "number" ? incident.latitude : incident.lat;
@@ -75,7 +57,10 @@ function toMapReport(payload: unknown): MapReport | null {
   const coords = toCoords(incident);
   if (!coords) return null;
 
-  const incidentId = incident.id ?? `${incident.title || "incident"}-${incident.created_at || Date.now()}`;
+  const incidentId =
+    incident.id ??
+    incident._id ??
+    `${incident.title || "incident"}-${incident.created_at || Date.now()}`;
   const severity = typeof incident.severity === "number" ? Math.max(1, Math.min(incident.severity, 5)) : 3;
   const socketScoreConfidence =
     eventPayload.score && typeof eventPayload.score.confidence === "number"
@@ -101,17 +86,59 @@ function toMapReport(payload: unknown): MapReport | null {
 export default function HoosAlertPage() {
   const [reports, setReports] = useState<MapReport[]>(initialReports);
   const [socketStatus, setSocketStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
-  const upsertReport = useCallback((report: MapReport) => {
+
+  const upsertReports = useCallback((incoming: MapReport[]) => {
     setReports((prev) => {
-      const existingIndex = prev.findIndex((item) => item.id === report.id);
-      if (existingIndex >= 0) {
-        const next = [...prev];
-        next[existingIndex] = report;
-        return next;
+      let next = [...prev];
+      for (const report of incoming) {
+        const existingIndex = next.findIndex((item) => item.id === report.id);
+        if (existingIndex >= 0) {
+          next[existingIndex] = report;
+        } else {
+          next = [report, ...next];
+        }
       }
-      return [report, ...prev].slice(0, 200);
+      return next.slice(0, 200);
     });
   }, []);
+
+  const upsertReport = useCallback((report: MapReport) => {
+    upsertReports([report]);
+  }, [upsertReports]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadExistingIncidents() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/incidents?limit=200`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+
+        const body: unknown = await response.json();
+        if (!body || typeof body !== "object") return;
+
+        const incidents = Array.isArray((body as { incidents?: unknown }).incidents)
+          ? ((body as { incidents: unknown[] }).incidents ?? [])
+          : [];
+
+        const parsedReports = incidents
+          .map((item) => toMapReport(item))
+          .filter((item): item is MapReport => item !== null);
+
+        if (ignore || parsedReports.length === 0) return;
+        upsertReports(parsedReports);
+      } catch {
+        // Keep current map state when initial incident load fails.
+      }
+    }
+
+    loadExistingIncidents();
+    return () => {
+      ignore = true;
+    };
+  }, [upsertReports]);
 
   useEffect(() => {
     try {
