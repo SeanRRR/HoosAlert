@@ -10,14 +10,14 @@ interface AlertCardProps {
 export function AlertCard({ title, location, time, severity }: AlertCardProps) {
   const severityStyles = {
     high: "border-l-destructive bg-destructive/5",
-    medium: "border-l-amber-500 bg-amber-50",
-    low: "border-l-primary bg-primary/5",
+    medium: "border-l-orange-500 bg-orange-50",
+    low: "border-l-yellow-500 bg-yellow-50",
   }
 
   const severityBadge = {
     high: "bg-destructive/10 text-destructive",
-    medium: "bg-amber-100 text-amber-700",
-    low: "bg-primary/10 text-primary",
+    medium: "bg-orange-100 text-orange-700",
+    low: "bg-yellow-100 text-yellow-700",
   }
 
   return (
@@ -52,8 +52,8 @@ export function AlertCard({ title, location, time, severity }: AlertCardProps) {
             severity === "high"
               ? "text-destructive"
               : severity === "medium"
-              ? "text-amber-500"
-              : "text-primary"
+              ? "text-orange-500"
+              : "text-yellow-500"
           }`}
         />
       </div>

@@ -15,11 +15,11 @@ export type MapReport = {
 };
 
 function circleColor(severity: number): string {
-  if (severity >= 5) return "#B91C1C";
-  if (severity >= 4) return "#DC2626";
-  if (severity >= 3) return "#F97316";
-  if (severity >= 2) return "#EAB308";
-  return "#22C55E";
+  // Keep map colors aligned with sidebar alert buckets:
+  // high (>=4), medium (=3), low (<=2)
+  if (severity >= 4) return "#DC2626"; // red
+  if (severity >= 3) return "#F97316"; // orange
+  return "#EAB308"; // yellow
 }
 
 type Props = {
