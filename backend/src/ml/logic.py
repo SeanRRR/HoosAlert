@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import sys
 from typing import Any
 
 import google.generativeai as genai
@@ -10,9 +11,16 @@ _GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if _GEMINI_API_KEY:
     genai.configure(api_key=_GEMINI_API_KEY)
 
+_DEBUG_AI_SCORING = os.getenv("DEBUG_AI_SCORING", "").lower() in {"1", "true", "yes", "on"}
+
 # High-impact keywords for validation
 HIGH_IMPACT_KEYWORDS = ["fire", "weapon", "active", "medical", "unconscious", "shooter", "bomb"]
 _MAX_HISTORY_ITEMS = 25
+
+
+def _debug_ai(message: str) -> None:
+    if _DEBUG_AI_SCORING:
+        print(f"[ai-score-debug] {message}", file=sys.stderr)
 
 def _fallback_score(text: str) -> dict:
     """
@@ -124,11 +132,15 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict:
         model = model_cls("gemini-1.5-flash")
         response = model.generate_content(prompt)
         response_text = getattr(response, "text", "") or ""
+        _debug_ai(f"Gemini raw response: {response_text!r}")
         payload = _extract_json_dict(response_text)
         if payload is None:
+            _debug_ai("Gemini response could not be parsed as JSON; using fallback score.")
             return _fallback_score(text)
+        _debug_ai(f"Gemini parsed payload: {payload}")
         return _normalize_ai_result(payload, text)
-    except Exception:
+    except Exception as exc:
+        _debug_ai(f"Gemini request failed: {exc!r}; using fallback score.")
         return _fallback_score(text)
 
 def validate_score(text: str, ai_score: int) -> int:
