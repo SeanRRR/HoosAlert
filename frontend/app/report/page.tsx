@@ -3,8 +3,31 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Select from "react-select"
+import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet"
+import "leaflet/dist/leaflet.css"
+import L from "leaflet"
+
+delete (L.Icon.Default.prototype as any)._getIconUrl
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+})
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+function LocationPicker({ setPosition }: any) {
+  useMapEvents({
+    click(e) {
+      setPosition([e.latlng.lat, e.latlng.lng])
+    },
+  })
+  return null
+}
 
 export default function ReportPage() {
   const router = useRouter()
@@ -13,12 +36,13 @@ export default function ReportPage() {
   const [location, setLocation] = useState<any>(null)
 
   const [customIncident, setCustomIncident] = useState("")
-  const [customLocation, setCustomLocation] = useState("")
-
   const [computingId, setComputingId] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // 🔥 Incident types
+  // 📍 MAP STATE
+  const [selectedPosition, setSelectedPosition] = useState<[number, number] | null>(null)
+
+  // 🔥 INCIDENT TYPES
   const incidentOptions = [
     { value: "theft", label: "Theft" },
     { value: "shooter", label: "Shooter" },
@@ -30,7 +54,7 @@ export default function ReportPage() {
     { value: "other", label: "Other (type custom incident)" },
   ]
 
-const locationOptions = [
+ const locationOptions = [
   // 📚 LIBRARIES
   {
     label: "📚 Libraries",
@@ -43,6 +67,7 @@ const locationOptions = [
       { value: "health-sciences-library", label: "Health Sciences Library" },
     ],
   },
+
 
   // 🏫 ACADEMIC BUILDINGS
   {
@@ -62,6 +87,7 @@ const locationOptions = [
     ],
   },
 
+
   // 🏛️ CENTRAL GROUNDS
   {
     label: "🏛️ Central Grounds",
@@ -76,6 +102,7 @@ const locationOptions = [
       { value: "bavaro-hall", label: "Bavaro Hall" },
     ],
   },
+
 
   {
   label: "🏠 Upperclass Housing (Houses & Apartments)",
@@ -102,12 +129,14 @@ const locationOptions = [
   options: [
     { value: "mccormick-aldeman-area", label: "McCormick / Alderman Road Area" },
 
+
     // McCormick Road Dorms
     { value: "humphreys-house", label: "Humphreys House" },
     { value: "tuttle-dixon", label: "Tuttle-Dixon" },
     { value: "bray-hall", label: "Bray Hall" },
     { value: "cauthen-house", label: "Cauthen House" },
     { value: "dillard-dorms", label: "Dillard Residence Area" },
+
 
     // Alderman Road Dorms
     { value: "dunglison-hall", label: "Dunglison Hall" },
@@ -140,6 +169,7 @@ const locationOptions = [
     ],
   },
 
+
   // 🏥 HEALTH & SAFETY
   {
     label: "🏥 Health & Safety",
@@ -150,6 +180,7 @@ const locationOptions = [
       { value: "counseling-center", label: "UVA Counseling & Psychological Services (CAPS)" },
     ],
   },
+
 
   // 🏟️ ATHLETICS
   {
@@ -164,6 +195,7 @@ const locationOptions = [
     ],
   },
 
+
   // 🌳 CAMPUS HOTSPOTS / COMMON AREAS
   {
     label: "🌳 Campus Hotspots",
@@ -176,15 +208,8 @@ const locationOptions = [
       { value: "emory-garden", label: "Emmet Ivy Corridor / Gardens" },
     ],
   },
-
-  // ➕ OTHER
-  {
-    label: "Other",
-    options: [
-      { value: "other", label: "Other (type custom location)" },
-    ],
-  },
-]
+  { value: "other", label: "Other (pin on map)" },
+  ]
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -196,7 +221,9 @@ const locationOptions = [
 
     const finalLocation =
       location?.value === "other"
-        ? customLocation
+        ? selectedPosition
+          ? `Lat: ${selectedPosition[0]}, Lng: ${selectedPosition[1]}`
+          : ""
         : location?.label
 
     const payload = {
@@ -218,17 +245,12 @@ const locationOptions = [
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null)
-        throw new Error(errorBody?.detail || "Unable to submit report")
-      }
+      if (!response.ok) throw new Error("Failed to submit")
 
       alert("Report submitted successfully!")
       router.push("/")
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to submit report"
-      alert(`Report submission failed: ${message}`)
+    } catch (err) {
+      alert("Error submitting report")
     } finally {
       setIsSubmitting(false)
     }
@@ -241,7 +263,6 @@ const locationOptions = [
         onSubmit={handleSubmit}
         className="w-full max-w-lg bg-white rounded-2xl shadow-lg p-8 space-y-6"
       >
-
         <h1 className="text-2xl font-bold">Report Incident</h1>
 
         {/* INCIDENT TYPE */}
@@ -251,12 +272,7 @@ const locationOptions = [
           <Select
             options={incidentOptions}
             value={incidentType}
-            onChange={(value) => {
-              setIncidentType(value)
-              if (value?.value !== "other") {
-                setCustomIncident("")
-              }
-            }}
+            onChange={(value) => setIncidentType(value)}
             placeholder="Search incident type..."
           />
 
@@ -281,29 +297,54 @@ const locationOptions = [
             value={location}
             onChange={(value) => {
               setLocation(value)
-              if (value?.value !== "other") {
-                setCustomLocation("")
-              }
+              setSelectedPosition(null)
             }}
             placeholder="Search UVA location..."
           />
 
+          {/* 📍 MAP APPEARS HERE */}
           {location?.value === "other" && (
-            <input
-              type="text"
-              value={customLocation}
-              onChange={(e) => setCustomLocation(e.target.value)}
-              placeholder="Type custom location..."
-              className="w-full mt-3 border p-3 rounded-lg"
-              required
-            />
+            <div className="mt-4">
+              <div className="h-[300px] rounded-xl overflow-hidden border">
+                <MapContainer
+  center={[38.0336, -78.5080]}
+  zoom={15}
+  minZoom={14}
+  maxZoom={19}
+  maxBounds={[
+    [38.00, -78.55],  // southwest
+    [38.07, -78.45],  // northeast
+  ]}
+  maxBoundsViscosity={1.0}
+  scrollWheelZoom={true}
+  className="h-full w-full"
+>
+                  <TileLayer
+                    attribution='&copy; OpenStreetMap'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  <LocationPicker setPosition={setSelectedPosition} />
+
+                  {selectedPosition && (
+                    <Marker position={selectedPosition} />
+                  )}
+                </MapContainer>
+              </div>
+
+              {selectedPosition && (
+                <p className="text-sm text-gray-600 mt-2">
+                  📍 Selected: {selectedPosition[0].toFixed(5)},{" "}
+                  {selectedPosition[1].toFixed(5)}
+                </p>
+              )}
+            </div>
           )}
         </div>
 
         {/* COMPUTING ID */}
         <div>
           <label className="block mb-2 font-medium">Computing ID</label>
-
           <input
             type="text"
             value={computingId}
@@ -316,7 +357,6 @@ const locationOptions = [
 
         {/* BUTTONS */}
         <div className="flex gap-3">
-
           <button
             type="button"
             onClick={() => router.push("/")}
@@ -328,11 +368,10 @@ const locationOptions = [
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700"
           >
             {isSubmitting ? "Submitting..." : "Submit Report"}
           </button>
-
         </div>
 
       </form>

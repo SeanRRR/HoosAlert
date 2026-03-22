@@ -2,10 +2,23 @@
 
 import { Header } from "@/components/header";
 import { Sidebar } from "@/components/sidebar";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Circle} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 export default function HoosAlertPage() {
+
+  const reports = [
+    {
+      id: 1,
+      position: [38.0336, -78.5080],
+      type: "Theft",
+    },
+    {
+      id: 2,
+      position: [38.0357, -78.5034],
+      type: "Suspicious Activity",
+    },
+  ]
   return (
     <div className="h-screen flex flex-col bg-background pt-6">
 
@@ -33,7 +46,19 @@ export default function HoosAlertPage() {
                 attribution='&copy; OpenStreetMap contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-              
+                {/* 🔴 ADD THIS BLOCK RIGHT HERE */}
+  {reports.map((report) => (
+    <Circle
+      key={report.id}
+      center={report.position}
+      radius={30}
+      pathOptions={{
+        color: "red",
+        fillColor: "red",
+        fillOpacity: 0.3,
+      }}
+    />
+  ))}
             </MapContainer>
           </div>
         </div>
