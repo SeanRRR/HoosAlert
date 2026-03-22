@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hoosalert.local/schemas/report-submission.schema.json",
+  "title": "ReportSubmission",
+  "description": "Payload for POST /api/report",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "incidentType": {
+      "type": "string",
+      "minLength": 1,
+      "description": "User-selected incident type label."
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incident location label or custom value."
+    },
+    "computingId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Reporter UVA computing ID."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional free-text description. Falls back to incidentType if omitted."
+    }
+  },
+  "required": [
+    "incidentType",
+    "location",
+    "computingId"
+  ],
+  "examples": [
+    {
+      "incidentType": "Suspicious Activity",
+      "location": "Rice Hall (Computer Science)",
+      "computingId": "abc123"
+    }
+  ]
+}
