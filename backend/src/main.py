@@ -61,8 +61,14 @@ async def health():
 
 @app.post("/submit")
 async def submit_report(report: Report):
-    ai_result = score_incident(report.description)
-    severity = validate_score(report.description, ai_result["severity"])
+    scored_report = score_incident(
+        {
+            "title": report.title,
+            "description": report.description,
+            "location": report.location,
+        }
+    )
+    severity = scored_report["score"]["severity"]
     incident_data = {
         "title": report.title,
         "description": report.description,
@@ -77,6 +83,7 @@ async def submit_report(report: Report):
     return {
         "received": report,
         "severity": severity,
+        "score": scored_report["score"],
         "incident_id": incident_id,
         "message": "Report submitted successfully",
     }
@@ -102,7 +109,7 @@ async def create_report(report: ReportSubmission):
         limit=LLM_CONTEXT_LIMIT,
     )
 
-    ai_result = score_incident(
+    scored_report = score_incident(
         {
             "incidentType": incident_type,
             "description": description,
@@ -114,7 +121,7 @@ async def create_report(report: ReportSubmission):
         },
         history=history,
     )
-    severity = validate_score(description, ai_result["severity"])
+    severity = scored_report["score"]["severity"]
 
     incident_data = {
         "title": incident_type,
@@ -135,6 +142,7 @@ async def create_report(report: ReportSubmission):
     return {
         "message": "Report submitted successfully",
         "incident": payload,
+        "score": scored_report["score"],
     }
 
 
@@ -147,9 +155,8 @@ async def list_incidents(limit: int = 100):
 @app.post("/score")
 async def score_endpoint(payload: dict):
     text = payload.get("text", "")
-    ai_result = score_incident(text)
-    severity = validate_score(text, ai_result["severity"])
-    return {"severity": severity, "input": payload}
+    scored_report = score_incident({"text": text})
+    return scored_report
 
 
 @app.websocket("/ws")

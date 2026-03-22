@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -14,18 +15,20 @@ load_dotenv(BACKEND_DIR / ".env", override=True)
 
 os.environ["DEBUG_AI_SCORING"] = "1"
 
-from src.ml.logic import _ai_score, _fallback_score
+from src.ml.logic import score_incident, _fallback_score
 
 
 def main() -> int:
     text = " ".join(sys.argv[1:]).strip() or "There is a person in Building A"
-    result = _ai_score(text)
+    result = score_incident({"description": text})
     fallback = _fallback_score(text)
+    score = result["score"]
 
     print(f"Input: {text}")
-    print(f"Result: {result}")
+    print("Result:")
+    print(json.dumps(result, indent=2))
 
-    if result == fallback:
+    if score["fallback_used"] or score["severity"] == fallback["severity"] and score["risk_label"] == fallback["risk_label"]:
         print("Status: fallback path used")
     else:
         print("Status: Gemini returned a non-fallback result")

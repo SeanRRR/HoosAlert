@@ -6,7 +6,9 @@ You are helping classify University of Virginia campus safety reports.
 
 Given a current incident report and recent incident history, assign:
 - `severity`: integer from 1 to 5
-- `type`: short label that describes the incident
+- `risk_label`: short label that describes the incident
+- `confidence`: float from 0.0 to 1.0
+- `reason_codes`: short machine-readable reasons in snake_case
 
 ## Severity Rubric
 
@@ -45,7 +47,7 @@ Usually severity `1`:
 - lost property or non-dangerous sighting
 - resolved low-risk situation
 
-## Type Guidance
+## Risk Label Guidance
 
 Use short, practical labels such as:
 - `fire`
@@ -65,3 +67,16 @@ If the incident is very specific, a slightly more descriptive short label is acc
 - If the report is ambiguous, avoid overstating danger.
 - If the report clearly includes immediate threat language, weight safety over ambiguity.
 - Return only JSON and do not include commentary.
+
+## Response Shape
+
+Return only valid JSON in this shape:
+
+```json
+{
+  "severity": 4,
+  "risk_label": "security",
+  "confidence": 0.78,
+  "reason_codes": ["keyword_weapon", "recent_nearby_cluster"]
+}
+```

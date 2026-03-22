@@ -26,7 +26,7 @@ def test_ai_score_success(mock_client_cls):
     """
     # Mock the Gemini API response
     mock_response = MagicMock(
-        text='{"severity": 5, "type": "high_risk"}'
+        text='{"severity": 5, "risk_label": "security", "confidence": 0.91, "reason_codes": ["keyword_weapon"]}'
     )
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = mock_response
@@ -36,7 +36,11 @@ def test_ai_score_success(mock_client_cls):
     result = _ai_score(MOCK_TEXT)
 
     # Assertions
-    assert result == {"severity": 5, "type": "high_risk"}
+    assert result["severity"] == 5
+    assert result["risk_label"] == "security"
+    assert result["confidence"] == pytest.approx(0.91)
+    assert result["reason_codes"] == ["keyword_weapon"]
+    assert result["fallback_used"] is False
     mock_client.models.generate_content.assert_called_once()
 
 
@@ -53,7 +57,8 @@ def test_ai_score_failure(mock_client_cls):
     result = _ai_score(MOCK_TEXT)
 
     # Assertions
-    assert result == _fallback_score(MOCK_TEXT)  # Should fall back to the fallback score
+    assert result["severity"] == _fallback_score(MOCK_TEXT)["severity"]
+    assert result["fallback_used"] is True
 
 
 # --- TESTS FOR score_incident ---
@@ -65,14 +70,25 @@ def test_score_incident_with_ai(mock_ai_score):
     Test score_incident when AI scoring works.
     """
     # Mock the _ai_score function
-    mock_ai_score.return_value = {"severity": 5, "type": "high_risk"}
+    mock_ai_score.return_value = {
+        "severity": 5,
+        "risk_label": "security",
+        "confidence": 0.88,
+        "reason_codes": ["keyword_weapon"],
+        "model_version": "gemini-test",
+        "prompt_version": "v2",
+        "context_count": 0,
+        "fallback_used": False,
+        "scored_at": "2026-03-22T00:00:00+00:00",
+    }
 
     # Call the function
     result = score_incident(MOCK_DATA)
 
     # Assertions
-    assert result["severity"] == 5
-    assert result["type"] == "high_risk"
+    assert result["incident"]["incident_type"] == "fire"
+    assert result["score"]["severity"] == 5
+    assert result["score"]["risk_label"] == "security"
     mock_ai_score.assert_called_once()
 
 
@@ -93,4 +109,5 @@ def test_score_incident_fallback(mock_ai_score):
 
     # Assertions
     fallback_result = _fallback_score(expected_text)
-    assert result == fallback_result
+    assert result["score"]["severity"] == fallback_result["severity"]
+    assert result["score"]["fallback_used"] is True
