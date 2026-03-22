@@ -49,6 +49,16 @@ def _clamp_float(value: Any, minimum: float, maximum: float, default: float) -> 
     return max(minimum, min(parsed, maximum))
 
 
+def _extract_score_result(scored_report: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    if isinstance(scored_report, dict):
+        raw_score = scored_report.get("score")
+        if isinstance(raw_score, dict):
+            incident = scored_report.get("incident")
+            return (incident if isinstance(incident, dict) else {}, raw_score)
+        return ({}, scored_report)
+    return ({}, {})
+
+
 def _build_score_payload(
     ai_result: dict[str, Any],
     report_text: str,
@@ -58,7 +68,7 @@ def _build_score_payload(
     raw_severity = _clamp_int(ai_result.get("severity"), minimum=1, maximum=5, default=3)
     validated_severity = validate_score(report_text, raw_severity)
 
-    risk_label = ai_result.get("type", "unknown")
+    risk_label = ai_result.get("risk_label") or ai_result.get("type") or "unknown"
     if not isinstance(risk_label, str) or not risk_label.strip():
         risk_label = "unknown"
 
@@ -84,7 +94,6 @@ def _build_score_payload(
     if fallback_used and "fallback_rule_based" not in reason_codes:
         reason_codes.append("fallback_rule_based")
 
-    # Preserve order while removing duplicates.
     deduped_reason_codes = list(dict.fromkeys(reason_codes))
 
     return {
@@ -129,13 +138,22 @@ async def health():
 
 @app.post("/submit")
 async def submit_report(report: Report):
-    scored_at = _utc_now_iso()
-    ai_result = score_incident(report.description)
+    raw_result = score_incident(
+        {
+            "title": report.title,
+            "description": report.description,
+            "location": report.location,
+        }
+    )
+    _, raw_score = _extract_score_result(raw_result)
+
+    scored_at = str(raw_score.get("scored_at", _utc_now_iso()))
+    context_count = _clamp_int(raw_score.get("context_count", 0), minimum=0, maximum=1000, default=0)
     score_data = _build_score_payload(
-        ai_result=ai_result,
+        ai_result=raw_score,
         report_text=report.description,
         scored_at=scored_at,
-        context_count=0,
+        context_count=context_count,
     )
 
     incident_data = {
@@ -189,7 +207,7 @@ async def create_report(report: ReportSubmission):
         limit=LLM_CONTEXT_LIMIT,
     )
 
-    ai_result = score_incident(
+    raw_result = score_incident(
         {
             "incidentType": incident_type,
             "description": description,
@@ -201,10 +219,13 @@ async def create_report(report: ReportSubmission):
         },
         history=history,
     )
+    _, raw_score = _extract_score_result(raw_result)
+
+    scored_at = str(raw_score.get("scored_at", timestamp))
     score_data = _build_score_payload(
-        ai_result=ai_result,
+        ai_result=raw_score,
         report_text=description,
-        scored_at=timestamp,
+        scored_at=scored_at,
         context_count=len(history),
     )
 
@@ -249,12 +270,16 @@ async def list_incidents(limit: int = 100):
 @app.post("/score")
 async def score_endpoint(payload: dict):
     text = payload.get("text", "")
-    ai_result = score_incident(text)
+    raw_result = score_incident({"text": text})
+    _, raw_score = _extract_score_result(raw_result)
+
+    scored_at = str(raw_score.get("scored_at", _utc_now_iso()))
+    context_count = _clamp_int(raw_score.get("context_count", 0), minimum=0, maximum=1000, default=0)
     score_data = _build_score_payload(
-        ai_result=ai_result,
+        ai_result=raw_score,
         report_text=text,
-        scored_at=_utc_now_iso(),
-        context_count=0,
+        scored_at=scored_at,
+        context_count=context_count,
     )
     return {"score": score_data, "input": payload}
 
