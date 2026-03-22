@@ -227,9 +227,13 @@ export default function ReportPage() {
         : location?.label
 
     const payload = {
-      incidentType: finalIncident,
-      location: finalLocation,
-      computingId: computingId.trim(),
+    incidentType: finalIncident,
+    location: finalLocation,
+
+    latitude: selectedPosition?.[0] || null,
+    longitude: selectedPosition?.[1] || null,
+
+    computingId: computingId.trim(),
     }
 
     if (!payload.incidentType || !payload.location || !payload.computingId) {
