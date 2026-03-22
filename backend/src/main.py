@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from src.database import get_incidents, save_incident
 from src.ml.logic import score_incident
 from src.ml.validator import validate_score
+from src.schemas.report_submission import ReportSubmission
 from src.socket_manager import manager
 
 app = FastAPI(title="HoosAlert Backend")
@@ -24,13 +25,6 @@ class Report(BaseModel):
     title: str
     description: str
     location: str
-
-
-class ReportSubmission(BaseModel):
-    incidentType: str
-    location: str
-    computingId: str
-    description: str | None = None
 
 
 def _utc_now_iso() -> str:
