@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 from google import genai
@@ -14,11 +15,22 @@ _DEBUG_AI_SCORING = os.getenv("DEBUG_AI_SCORING", "").lower() in {"1", "true", "
 # High-impact keywords for validation
 HIGH_IMPACT_KEYWORDS = ["fire", "weapon", "active", "medical", "unconscious", "shooter", "bomb"]
 _MAX_HISTORY_ITEMS = 25
+_GEMINI_CONTEXT_PATH = Path(__file__).resolve().parents[2] / "data" / "gemini_context.md"
 
 
 def _debug_ai(message: str) -> None:
     if _DEBUG_AI_SCORING:
         print(f"[ai-score-debug] {message}", file=sys.stderr)
+
+
+def _load_gemini_context() -> str:
+    try:
+        return _GEMINI_CONTEXT_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return (
+            "Score campus safety incidents using a 1-5 severity scale. "
+            "Use short incident type labels and return only valid JSON."
+        )
 
 
 def _build_genai_client() -> genai.Client:
@@ -142,11 +154,13 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict:
     """
     try:
         history_text = _summarize_history(history)
+        guidance_text = _load_gemini_context()
         prompt = (
             "You are scoring campus safety incident reports. "
-            "Use the current report and the recent incident history for context. "
-            "Return ONLY valid JSON with this shape: "
+            "Use the scoring guidance, the current report, and the recent incident "
+            "history for context. Return ONLY valid JSON with this shape: "
             "{\"severity\": <integer 1-5>, \"type\": \"<short label>\"}.\n\n"
+            f"Scoring guidance:\n{guidance_text}\n\n"
             f"Current report:\n{text}\n\n"
             f"Recent incident history (most recent first):\n{history_text}"
         )
