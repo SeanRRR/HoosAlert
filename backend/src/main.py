@@ -1,6 +1,7 @@
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from schemas.report import ReportSubmission
 
 # Import your sub-modules
 from socket_manager import manager
@@ -25,14 +26,14 @@ async def health_check():
     return {"status": "HoosAlert API is online"}
 
 @app.post("/api/report")
-async def handle_report(report: dict):
+async def handle_report(report: ReportSubmission):
     """
     The Core Pipeline:
     1. Receive raw text from Reed's UI.
     2. Pass it to the Gemini 'Brain'.
     3. Broadcast the resulting JSON to all live map users.
     """
-    raw_text = report.get("text", "No description provided")
+    raw_text = report.text
     
     # Send to Gemini (ai_logic.py)
     processed_incident = ai_logic.process_with_gemini(raw_text)

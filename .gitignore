@@ -10,3 +10,6 @@ __pycache__/
 
 # Ignore virtual environments
 venv/
+
+# Ignore custom attribute files
+.DS_Store
