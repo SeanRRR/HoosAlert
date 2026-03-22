@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.ml.logic import _ai_score, score_incident, _fallback_score
+from src.ml.logic import _ai_score, score_incident, _fallback_score, incident_confidence
 
 # Mock data for testing
 MOCK_TEXT = "There is a fire in Building A"
@@ -111,3 +111,21 @@ def test_score_incident_fallback(mock_ai_score, _mock_api_key):
     fallback_result = _fallback_score(expected_text)
     assert result["score"]["severity"] == fallback_result["severity"]
     assert result["score"]["fallback_used"] is True
+
+
+@patch("src.ml.logic.incident_match_confidence")
+def test_incident_confidence_exposed_through_logic(mock_incident_match_confidence):
+    mock_incident_match_confidence.return_value = {
+        "confidence": 0.82,
+        "fallback_used": False,
+        "reason_codes": ["semantic_description_match"],
+    }
+
+    result = incident_confidence(
+        {"description": "Suspicious unattended bag near Old Cabell Hall"},
+        {"description": "Unattended backpack reported outside Old Cabell Hall"},
+        use_gemini=False,
+    )
+
+    assert result["confidence"] == 0.82
+    mock_incident_match_confidence.assert_called_once()

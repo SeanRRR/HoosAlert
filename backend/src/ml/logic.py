@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from src.ml.confidence import incident_match_confidence
 
 try:
     from google import genai  # google-genai
@@ -399,3 +400,21 @@ def score_incident(data: str | dict, history: list[dict[str, Any]] | None = None
 
     score = _ai_score(text, history=history)
     return {"incident": incident, "score": _apply_score_validation(text, score)}
+
+
+def incident_confidence(
+    incident1: dict[str, Any],
+    incident2: dict[str, Any],
+    *,
+    weights: dict[str, float] | None = None,
+    use_gemini: bool = True,
+) -> dict[str, Any]:
+    """
+    Expose pairwise incident match confidence through the main ML logic module.
+    """
+    return incident_match_confidence(
+        incident1,
+        incident2,
+        weights=weights,
+        use_gemini=use_gemini,
+    )
