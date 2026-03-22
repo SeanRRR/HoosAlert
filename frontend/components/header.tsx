@@ -1,7 +1,8 @@
 "use client"
 
-import { Home, Shield, BookOpen, User } from "lucide-react"
-import { useRouter, usePathname } from "next/navigation"
+import { Home, Shield, BookOpen } from "lucide-react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 
 const navItems = [
   { name: "Home", icon: Home, path: "/" },
@@ -9,7 +10,6 @@ const navItems = [
 ]
 
 export function Header() {
-  const router = useRouter()
   const pathname = usePathname()
 
   return (
@@ -34,9 +34,9 @@ export function Header() {
           const isActive = pathname === item.path
 
           return (
-            <button
+            <Link
               key={item.name}
-              onClick={() => router.push(item.path)}
+              href={item.path}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-sm"
@@ -45,18 +45,14 @@ export function Header() {
             >
               <Icon className="w-4 h-4" />
               {item.name}
-            </button>
+            </Link>
           )
         })}
 
       </nav>
 
-      {/* RIGHT: USER */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-          <User className="w-4 h-4 text-primary" />
-        </div>
-      </div>
+      {/* RIGHT: SPACER (keeps nav visually centered) */}
+      <div className="w-9 h-9" aria-hidden />
 
     </header>
   )

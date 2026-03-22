@@ -12,7 +12,7 @@ export default function MainLayout({
     <div className="min-h-screen flex flex-col">
 
       {/* HEADER ONLY FOR MAIN AREA */}
-      <div className="h-[80px]">
+      <div className="h-[80px] sticky top-0 z-40">
         <Header />
       </div>
 

@@ -13,6 +13,41 @@ const ReportLocationMap = dynamic(() => import("@/components/report-location-map
   loading: () => <div className="h-full w-full p-3 text-sm text-gray-600">Loading map...</div>,
 })
 
+type LocationLeafOption = {
+  value: string
+  label: string
+}
+
+type LocationGroupOption = {
+  label: string
+  options: LocationLeafOption[]
+}
+
+type LocationOption = LocationLeafOption | LocationGroupOption
+
+function isLocationGroupOption(option: LocationOption): option is LocationGroupOption {
+  return "options" in option
+}
+
+function filterLocationOptionsByCoordinates(options: LocationOption[]): LocationOption[] {
+  const coordKeys = new Set(Object.keys(locationCoords))
+
+  return options.flatMap((option) => {
+    if (isLocationGroupOption(option)) {
+      const filteredGroupOptions = option.options.filter(
+        (item) => item.value === "other" || coordKeys.has(item.value),
+      )
+      return filteredGroupOptions.length > 0
+        ? [{ ...option, options: filteredGroupOptions }]
+        : []
+    }
+
+    return option.value === "other" || coordKeys.has(option.value)
+      ? [option]
+      : []
+  })
+}
+
 export default function ReportPage() {
   const router = useRouter()
 
@@ -22,6 +57,7 @@ export default function ReportPage() {
   const [customIncident, setCustomIncident] = useState("")
   const [computingId, setComputingId] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // 📍 MAP STATE
   const [selectedPosition, setSelectedPosition] = useState<[number, number] | null>(null)
@@ -38,7 +74,7 @@ export default function ReportPage() {
     { value: "other", label: "Other (type custom incident)" },
   ]
 
- const locationOptions = [
+ const rawLocationOptions: LocationOption[] = [
   // 📚 LIBRARIES
   {
     label: "📚 Libraries",
@@ -194,9 +230,11 @@ export default function ReportPage() {
   },
   { value: "other", label: "Other (pin on map)" },
   ]
+  const locationOptions = filterLocationOptionsByCoordinates(rawLocationOptions)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setSubmitError(null)
 
     const selectedLocationKey = typeof location?.value === "string" ? location.value : ""
 
@@ -230,12 +268,12 @@ export default function ReportPage() {
     }
 
     if (selectedLocationKey !== "other" && !resolvedCoords) {
-      alert("Selected location does not have coordinates yet. Please choose 'Other' and pin on map.")
+      setSubmitError("Selected location does not have coordinates yet. Please choose 'Other' and pin on map.")
       return
     }
 
     if (!payload.incidentType || !payload.location || !payload.computingId) {
-      alert("Please complete all required fields.")
+      setSubmitError("Please complete all required fields.")
       return
     }
 
@@ -260,28 +298,6 @@ export default function ReportPage() {
         throw new Error(detail)
       }
 
-      const score =
-        result &&
-        typeof result === "object" &&
-        "score" in result &&
-        typeof (result as { score?: unknown }).score === "object"
-          ? (result as { score: { severity?: unknown; risk_label?: unknown } }).score
-          : null
-
-      const severity =
-        score && typeof score.severity === "number"
-          ? score.severity
-          : null
-      const riskLabel =
-        score && typeof score.risk_label === "string"
-          ? score.risk_label
-          : null
-
-      const scoreText =
-        severity !== null
-          ? ` Severity: ${severity}${riskLabel ? ` (${riskLabel})` : ""}.`
-          : ""
-
       if (
         result &&
         typeof result === "object" &&
@@ -298,10 +314,9 @@ export default function ReportPage() {
         sessionStorage.setItem(PENDING_EVENT_KEY, JSON.stringify(nextEvent))
       }
 
-      alert(`Report submitted successfully!${scoreText}`)
       router.push("/")
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Error submitting report")
+      setSubmitError(err instanceof Error ? err.message : "Error submitting report")
     } finally {
       setIsSubmitting(false)
     }
@@ -315,6 +330,11 @@ export default function ReportPage() {
         className="w-full max-w-lg bg-white rounded-2xl shadow-lg p-8 space-y-6"
       >
         <h1 className="text-2xl font-bold">Report Incident</h1>
+        {submitError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {submitError}
+          </div>
+        )}
 
         {/* INCIDENT TYPE */}
         <div>
