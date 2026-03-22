@@ -1,6 +1,7 @@
 # database.py - MongoDB CRUD + mock incident seeding
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,51 @@ async def save_incident(incident: dict[str, Any]) -> str:
 async def get_incidents(limit: int = 100) -> list[dict[str, Any]]:
     cursor = db[INCIDENTS_COLLECTION].find().limit(limit)
     return await cursor.to_list(length=limit)
+
+
+def _parse_incident_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _incident_timestamp(record: dict[str, Any]) -> datetime | None:
+    created_at = _parse_incident_time(record.get("created_at"))
+    if created_at:
+        return created_at
+    return _parse_incident_time(record.get("timestamp"))
+
+
+async def get_incidents_for_scoring(hours: int = 24, limit: int = 100) -> list[dict[str, Any]]:
+    """
+    Retrieve recent incidents for LLM scoring context.
+    """
+    safe_limit = max(1, min(limit, 1000))
+    safe_hours = max(1, min(hours, 24 * 30))
+
+    cursor = db[INCIDENTS_COLLECTION].find().sort([("_id", -1)]).limit(safe_limit)
+    records = await cursor.to_list(length=safe_limit)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=safe_hours)
+    recent_records = []
+    for record in records:
+        timestamp = _incident_timestamp(record)
+        if timestamp and timestamp >= cutoff:
+            recent_records.append(record)
+
+    if recent_records:
+        return recent_records
+
+    # If timestamps are missing/unparseable, still provide recent records as fallback context.
+    return records
 
 
 async def seed_mock_incidents(file_path: str | None = None, clear_existing: bool = False) -> dict[str, Any]:

@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+import os
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from src.database import get_incidents, save_incident
+from src.database import get_incidents, get_incidents_for_scoring, save_incident
 from src.ml.logic import score_incident
 from src.ml.validator import validate_score
 from src.schemas.report_submission import ReportSubmission
@@ -29,6 +30,23 @@ class Report(BaseModel):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+
+    return max(minimum, min(value, maximum))
+
+
+LLM_CONTEXT_HOURS = _env_int("LLM_CONTEXT_HOURS", default=24, minimum=1, maximum=24 * 30)
+LLM_CONTEXT_LIMIT = _env_int("LLM_CONTEXT_LIMIT", default=100, minimum=1, maximum=1000)
 
 
 @app.get("/")
@@ -77,8 +95,25 @@ async def create_report(report: ReportSubmission):
         )
 
     description = (report.description or incident_type).strip()
+    timestamp = _utc_now_iso()
 
-    ai_result = score_incident(description)
+    history = await get_incidents_for_scoring(
+        hours=LLM_CONTEXT_HOURS,
+        limit=LLM_CONTEXT_LIMIT,
+    )
+
+    ai_result = score_incident(
+        {
+            "incidentType": incident_type,
+            "description": description,
+            "location": location,
+            "computingId": reporter_id,
+            "timestamp": timestamp,
+            "latitude": report.latitude,
+            "longitude": report.longitude,
+        },
+        history=history,
+    )
     severity = validate_score(description, ai_result["severity"])
 
     incident_data = {
@@ -90,7 +125,7 @@ async def create_report(report: ReportSubmission):
         "severity": severity,
         "reporter_id": reporter_id,
         "source": "user_report",
-        "created_at": _utc_now_iso(),
+        "created_at": timestamp,
     }
 
     incident_id = await save_incident(incident_data)

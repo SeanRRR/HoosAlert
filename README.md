@@ -96,3 +96,17 @@ db.incidents.find().sort({ created_at: -1 }).limit(10).pretty()
 ### 4) Optional: seed mock incidents
 
 Start backend, then call the seed endpoint (if enabled in your app flow), or submit reports from the frontend to create records.
+
+## LLM Context Window (Optional)
+
+When scoring a new report, backend can include recent incidents from MongoDB as context.
+
+In `backend/.env`:
+
+```env
+LLM_CONTEXT_HOURS=24
+LLM_CONTEXT_LIMIT=100
+```
+
+- `LLM_CONTEXT_HOURS`: only incidents within this many recent hours are included.
+- `LLM_CONTEXT_LIMIT`: max number of incidents fetched for scoring context.
