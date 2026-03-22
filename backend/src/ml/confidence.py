@@ -35,6 +35,27 @@ def _confidence_model() -> str:
     return os.getenv("GEMINI_CONFIDENCE_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
+def _confidence_models() -> list[str]:
+    pooled_models = os.getenv("GEMINI_CONFIDENCE_MODELS") or os.getenv("GEMINI_MODELS", "")
+    parsed = [item.strip() for item in pooled_models.replace("\n", ",").split(",") if item and item.strip()]
+
+    primary_model = _confidence_model().strip()
+    if primary_model:
+        parsed.append(primary_model)
+
+    defaults = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"]
+    parsed.extend(defaults)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for model_name in parsed:
+        if model_name in seen:
+            continue
+        seen.add(model_name)
+        deduped.append(model_name)
+    return deduped
+
+
 def _confidence_prompt_version() -> str:
     return os.getenv("CONFIDENCE_PROMPT_VERSION", "v1")
 
@@ -43,10 +64,28 @@ def _gemini_api_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
-def _build_genai_client():
+def _gemini_api_keys() -> list[str]:
+    pooled_keys = os.getenv("GEMINI_API_KEYS", "")
+    parsed = [item.strip() for item in pooled_keys.replace("\n", ",").split(",") if item and item.strip()]
+
+    single_key = _gemini_api_key().strip()
+    if single_key:
+        parsed.append(single_key)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for key in parsed:
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return deduped
+
+
+def _build_genai_client(api_key: str | None = None):
     if genai is None:
         raise RuntimeError("google-genai is not installed.")
-    api_key = _gemini_api_key()
+    api_key = (api_key or _gemini_api_key()).strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
     return genai.Client(api_key=api_key)
@@ -308,7 +347,6 @@ def _gemini_similarity(
     incident2: dict[str, Any],
     deterministic_summary: dict[str, Any],
 ) -> dict[str, Any]:
-    client = _build_genai_client()
     prompt = (
         "You are estimating whether two campus safety incidents refer to the same event, "
         "a related event cluster, or unrelated events. Use the structured incident fields, "
@@ -321,33 +359,50 @@ def _gemini_similarity(
         f"Incident 2:\n{json.dumps(incident2, indent=2, sort_keys=True)}\n\n"
         f"Deterministic feature summary:\n{json.dumps(deterministic_summary, indent=2, sort_keys=True)}"
     )
-    response = client.models.generate_content(model=_confidence_model(), contents=prompt)
-    payload = _extract_json_dict(_response_text(response))
-    if payload is None:
-        raise RuntimeError("Gemini similarity response was not valid JSON.")
+    api_keys = _gemini_api_keys()
+    if not api_keys:
+        raise RuntimeError("No Gemini API keys configured.")
+    model_candidates = _confidence_models()
+    if not model_candidates:
+        raise RuntimeError("No Gemini models configured.")
 
-    try:
-        semantic_similarity = float(payload.get("semantic_similarity"))
-    except (TypeError, ValueError):
-        semantic_similarity = deterministic_summary["calibrated_score"]
+    last_error: Exception | None = None
+    for model_name in model_candidates:
+        for api_key in api_keys:
+            try:
+                client = _build_genai_client(api_key=api_key)
+                response = client.models.generate_content(model=model_name, contents=prompt)
+                payload = _extract_json_dict(_response_text(response))
+                if payload is None:
+                    raise RuntimeError("Gemini similarity response was not valid JSON.")
 
-    try:
-        match_confidence = float(payload.get("match_confidence"))
-    except (TypeError, ValueError):
-        match_confidence = semantic_similarity
+                try:
+                    semantic_similarity = float(payload.get("semantic_similarity"))
+                except (TypeError, ValueError):
+                    semantic_similarity = deterministic_summary["calibrated_score"]
 
-    semantic_similarity = max(0.0, min(semantic_similarity, 1.0))
-    match_confidence = max(0.0, min(match_confidence, 1.0))
-    raw_reason_codes = payload.get("reason_codes")
-    reason_codes = [code for code in raw_reason_codes if isinstance(code, str) and code.strip()] if isinstance(raw_reason_codes, list) else []
-    if not reason_codes:
-        reason_codes = ["gemini_similarity_default"]
+                try:
+                    match_confidence = float(payload.get("match_confidence"))
+                except (TypeError, ValueError):
+                    match_confidence = semantic_similarity
 
-    return {
-        "semantic_similarity": semantic_similarity,
-        "match_confidence": match_confidence,
-        "reason_codes": reason_codes,
-    }
+                semantic_similarity = max(0.0, min(semantic_similarity, 1.0))
+                match_confidence = max(0.0, min(match_confidence, 1.0))
+                raw_reason_codes = payload.get("reason_codes")
+                reason_codes = [code for code in raw_reason_codes if isinstance(code, str) and code.strip()] if isinstance(raw_reason_codes, list) else []
+                if not reason_codes:
+                    reason_codes = ["gemini_similarity_default"]
+
+                return {
+                    "semantic_similarity": semantic_similarity,
+                    "match_confidence": match_confidence,
+                    "reason_codes": reason_codes,
+                    "model_version": model_name,
+                }
+            except Exception as exc:
+                last_error = exc
+
+    raise RuntimeError(f"All Gemini model/key attempts failed. Last error: {last_error!r}")
 
 
 def incident_match_confidence(
@@ -363,12 +418,14 @@ def incident_match_confidence(
     semantic_similarity = None
 
     final_confidence = deterministic["calibrated_score"]
+    model_version = _confidence_model()
     if use_gemini:
         try:
             gemini_result = _gemini_similarity(incident1, incident2, deterministic)
             semantic_similarity = gemini_result["semantic_similarity"]
             final_confidence = 0.55 * deterministic["calibrated_score"] + 0.45 * gemini_result["match_confidence"]
             reason_codes.extend(gemini_result["reason_codes"])
+            model_version = str(gemini_result.get("model_version", model_version))
             fallback_used = False
         except Exception:
             reason_codes.append("gemini_similarity_unavailable")
@@ -385,7 +442,7 @@ def incident_match_confidence(
         "weights": deterministic["weights"],
         "information_coverage": round(deterministic["information_coverage"], 6),
         "reason_codes": deduped_reason_codes,
-        "model_version": _confidence_model(),
+        "model_version": model_version,
         "prompt_version": _confidence_prompt_version(),
         "fallback_used": fallback_used,
         "allow_extreme_confidence": allow_extremes,

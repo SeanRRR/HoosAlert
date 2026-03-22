@@ -80,7 +80,18 @@ def _build_score_payload(
     if not isinstance(risk_label, str) or not risk_label.strip():
         risk_label = "unknown"
 
-    confidence = _clamp_float(ai_result.get("confidence"), minimum=0.0, maximum=1.0, default=0.5)
+    fallback_used = bool(ai_result.get("fallback_used", False))
+    raw_confidence = _clamp_float(
+        ai_result.get("confidence"),
+        minimum=0.0,
+        maximum=1.0,
+        default=CONFIDENCE_BASELINE,
+    )
+    confidence, context_scale = _calibrate_confidence(
+        raw_confidence=raw_confidence,
+        context_count=context_count,
+        fallback_used=fallback_used,
+    )
 
     raw_reason_codes = ai_result.get("reason_codes")
     if isinstance(raw_reason_codes, list):
@@ -97,8 +108,10 @@ def _build_score_payload(
         reason_codes.append("recent_context_used")
     else:
         reason_codes.append("low_context_available")
-
-    fallback_used = bool(ai_result.get("fallback_used", False))
+    if abs(confidence - raw_confidence) > 1e-9:
+        reason_codes.append("confidence_calibrated_from_baseline")
+    if context_scale < 1.0:
+        reason_codes.append("confidence_limited_by_context")
     if fallback_used and "fallback_rule_based" not in reason_codes:
         reason_codes.append("fallback_rule_based")
 
@@ -130,8 +143,30 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
+def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+
+    return max(minimum, min(value, maximum))
+
+
 LLM_CONTEXT_HOURS = _env_int("LLM_CONTEXT_HOURS", default=24, minimum=1, maximum=24 * 30)
 LLM_CONTEXT_LIMIT = _env_int("LLM_CONTEXT_LIMIT", default=100, minimum=1, maximum=1000)
+
+CONFIDENCE_BASELINE = _env_float("CONFIDENCE_BASELINE", default=0.5, minimum=0.0, maximum=1.0)
+CONFIDENCE_FULL_CONTEXT_COUNT = _env_int("CONFIDENCE_FULL_CONTEXT_COUNT", default=10, minimum=1, maximum=1000)
+CONFIDENCE_FALLBACK_DELTA_SCALE = _env_float(
+    "CONFIDENCE_FALLBACK_DELTA_SCALE",
+    default=0.25,
+    minimum=0.0,
+    maximum=1.0,
+)
 
 RESCORE_ENABLED = os.getenv("RESCORE_ENABLED", "1").lower() in {"1", "true", "yes", "on"}
 RESCORE_LOOP_SLEEP_SEC = _env_int("RESCORE_LOOP_SLEEP_SEC", default=5, minimum=1, maximum=300)
@@ -141,10 +176,30 @@ _RESCORE_INTERVAL_BY_SEVERITY = {
     2: _env_int("RESCORE_INTERVAL_SEVERITY_2_SEC", default=900, minimum=30, maximum=24 * 3600),
     3: _env_int("RESCORE_INTERVAL_SEVERITY_3_SEC", default=300, minimum=30, maximum=24 * 3600),
     4: _env_int("RESCORE_INTERVAL_SEVERITY_4_SEC", default=120, minimum=30, maximum=24 * 3600),
-    5: _env_int("RESCORE_INTERVAL_SEVERITY_5_SEC", default=60, minimum=30, maximum=24 * 3600),
+    5: _env_int("RESCORE_INTERVAL_SEVERITY_5_SEC", default=60, minimum=5, maximum=24 * 3600),
 }
 
 _rescore_worker_task: asyncio.Task | None = None
+
+
+def _calibrate_confidence(raw_confidence: float, context_count: int, fallback_used: bool) -> tuple[float, float]:
+    safe_context_count = max(0, context_count)
+    context_scale = min(1.0, safe_context_count / float(CONFIDENCE_FULL_CONTEXT_COUNT))
+
+    delta = raw_confidence - CONFIDENCE_BASELINE
+    if fallback_used:
+        delta *= CONFIDENCE_FALLBACK_DELTA_SCALE
+
+    calibrated_confidence = CONFIDENCE_BASELINE + (delta * context_scale)
+    return (
+        _clamp_float(
+            calibrated_confidence,
+            minimum=0.0,
+            maximum=1.0,
+            default=CONFIDENCE_BASELINE,
+        ),
+        context_scale,
+    )
 
 
 def _parse_iso_utc(value: Any) -> datetime:

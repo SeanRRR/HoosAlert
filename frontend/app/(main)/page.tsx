@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { MapReport } from "@/components/incident-live-map";
 import { Sidebar } from "@/components/sidebar";
@@ -21,10 +21,17 @@ type IncidentPayload = {
 };
 
 type SocketEventPayload = {
+  event_type?: string;
   incident?: IncidentPayload;
   score?: {
     confidence?: number;
+    fallback_used?: boolean;
   };
+};
+
+type ConfidenceNotification = {
+  id: string;
+  message: string;
 };
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -80,12 +87,33 @@ function toMapReport(payload: unknown): MapReport | null {
     severity,
     riskLabel: incident.risk_label || "unknown",
     confidence: confidence !== null ? Math.max(0, Math.min(confidence, 1)) : null,
+    updatedAt: incident.created_at ?? null,
   };
 }
 
 export default function HoosAlertPage() {
   const [reports, setReports] = useState<MapReport[]>(initialReports);
   const [socketStatus, setSocketStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [notifications, setNotifications] = useState<ConfidenceNotification[]>([]);
+  const confidenceByIdRef = useRef<Map<string, number | null>>(new Map());
+
+  const notifyConfidenceUpdate = useCallback(
+    (report: MapReport, before: number, after: number, fallbackUsed: boolean | null) => {
+    const notificationId = `${report.id}-${Date.now()}`;
+      const fallbackText =
+        fallbackUsed === null ? "fallback=unknown" : `fallback=${fallbackUsed ? "true" : "false"}`;
+      const message = `${report.type} at ${report.location}: confidence ${Math.round(
+        before * 100,
+      )}% -> ${Math.round(after * 100)}% (${fallbackText})`;
+
+      setNotifications((prev) => [...prev.slice(-3), { id: notificationId, message }]);
+
+      window.setTimeout(() => {
+        setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+      }, 4500);
+    },
+    [],
+  );
 
   const upsertReports = useCallback((incoming: MapReport[]) => {
     setReports((prev) => {
@@ -105,6 +133,14 @@ export default function HoosAlertPage() {
   const upsertReport = useCallback((report: MapReport) => {
     upsertReports([report]);
   }, [upsertReports]);
+
+  useEffect(() => {
+    const next = new Map<string, number | null>();
+    for (const report of reports) {
+      next.set(report.id, report.confidence);
+    }
+    confidenceByIdRef.current = next;
+  }, [reports]);
 
   useEffect(() => {
     let ignore = false;
@@ -166,9 +202,26 @@ export default function HoosAlertPage() {
 
     socket.onmessage = (event) => {
       try {
-        const parsed = JSON.parse(event.data);
+        const parsed: unknown = JSON.parse(event.data);
         const report = toMapReport(parsed);
         if (!report) return;
+
+        const payload = parsed as SocketEventPayload;
+        const isRescoreEvent = payload.event_type === "incident_rescored";
+        const fallbackUsed =
+          payload.score && typeof payload.score.fallback_used === "boolean"
+            ? payload.score.fallback_used
+            : null;
+        const previousConfidence = confidenceByIdRef.current.get(report.id);
+        const currentConfidence = report.confidence;
+        const confidenceChanged =
+          typeof previousConfidence === "number" &&
+          typeof currentConfidence === "number" &&
+          Math.abs(previousConfidence - currentConfidence) > 1e-6;
+
+        if (isRescoreEvent && confidenceChanged) {
+          notifyConfidenceUpdate(report, previousConfidence, currentConfidence, fallbackUsed);
+        }
 
         upsertReport(report);
       } catch {
@@ -179,7 +232,7 @@ export default function HoosAlertPage() {
     return () => {
       socket.close();
     };
-  }, [upsertReport]);
+  }, [notifyConfidenceUpdate, upsertReport]);
 
   const statusText = useMemo(() => {
     if (socketStatus === "connected") return "Live updates connected";
@@ -189,6 +242,18 @@ export default function HoosAlertPage() {
 
   return (
     <div className="h-screen flex flex-col bg-background pt-6">
+      {notifications.length > 0 && (
+        <div className="fixed right-4 top-16 z-[1200] space-y-2">
+          {notifications.map((item) => (
+            <div
+              key={item.id}
+              className="max-w-sm rounded-md border border-border bg-background/95 px-3 py-2 text-sm shadow-lg backdrop-blur"
+            >
+              {item.message}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="px-5 pb-2 text-sm text-muted-foreground">{statusText}</div>
 
       <main className="h-[80%] flex gap-5 p-5 pt-0">
@@ -199,7 +264,7 @@ export default function HoosAlertPage() {
         </div>
 
         <div className="w-1/4 h-full">
-          <Sidebar />
+          <Sidebar reports={reports} />
         </div>
       </main>
     </div>

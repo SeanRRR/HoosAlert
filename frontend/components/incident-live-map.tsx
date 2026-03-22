@@ -11,6 +11,7 @@ export type MapReport = {
   severity: number;
   riskLabel: string;
   confidence: number | null;
+  updatedAt?: string | null;
 };
 
 function circleColor(severity: number): string {

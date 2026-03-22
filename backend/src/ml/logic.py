@@ -53,8 +53,47 @@ def _gemini_api_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
+def _gemini_api_keys() -> list[str]:
+    pooled_keys = os.getenv("GEMINI_API_KEYS", "")
+    parsed = [item.strip() for item in pooled_keys.replace("\n", ",").split(",") if item and item.strip()]
+
+    single_key = _gemini_api_key().strip()
+    if single_key:
+        parsed.append(single_key)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for key in parsed:
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return deduped
+
+
 def _gemini_model() -> str:
     return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def _gemini_models() -> list[str]:
+    pooled_models = os.getenv("GEMINI_MODELS", "")
+    parsed = [item.strip() for item in pooled_models.replace("\n", ",").split(",") if item and item.strip()]
+
+    primary_model = _gemini_model().strip()
+    if primary_model:
+        parsed.append(primary_model)
+
+    defaults = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"]
+    parsed.extend(defaults)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for model_name in parsed:
+        if model_name in seen:
+            continue
+        seen.add(model_name)
+        deduped.append(model_name)
+    return deduped
 
 
 def _prompt_version() -> str:
@@ -84,8 +123,8 @@ def _load_gemini_context() -> str:
         )
 
 
-def _build_genai_client() -> genai.Client:
-    api_key = _gemini_api_key()
+def _build_genai_client(api_key: str | None = None) -> genai.Client:
+    api_key = (api_key or _gemini_api_key()).strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
     return genai.Client(api_key=api_key)
@@ -219,6 +258,7 @@ def _normalize_ai_result(
     payload: dict[str, Any],
     fallback_text: str,
     history: list[dict[str, Any]] | None = None,
+    model_used: str | None = None,
 ) -> dict[str, Any]:
     fallback = _fallback_score(fallback_text, history=history)
 
@@ -249,7 +289,7 @@ def _normalize_ai_result(
         "risk_label": risk_label,
         "confidence": confidence,
         "reason_codes": reason_codes,
-        "model_version": _gemini_model(),
+        "model_version": model_used or _gemini_model(),
         "prompt_version": _prompt_version(),
         "context_count": _context_count(history),
         "fallback_used": False,
@@ -288,36 +328,63 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict[st
     Use Gemini AI to score the incident severity.
     Returns a fallback score in case of errors or unavailability.
     """
-    try:
-        history_text = _summarize_history(history)
-        guidance_text = _load_gemini_context()
-        prompt = (
-            "You are scoring campus safety incident reports. "
-            "Use the scoring guidance, the current report, and the recent incident "
-            "history for context. Return ONLY valid JSON with this shape: "
-            "{\"severity\": <integer 1-5>, "
-            "\"risk_label\": \"<short label>\", "
-            "\"confidence\": <float 0-1>, "
-            "\"reason_codes\": [\"<snake_case_reason>\"]}.\n\n"
-            f"Scoring guidance:\n{guidance_text}\n\n"
-            f"Current report:\n{text}\n\n"
-            f"Recent incident history (most recent first):\n{history_text}"
-        )
-        client = _build_genai_client()
-        response = client.models.generate_content(model=_gemini_model(), contents=prompt)
-        response_text = _response_text(response)
-        _debug_ai(f"Gemini raw response: {response_text!r}")
+    history_text = _summarize_history(history)
+    guidance_text = _load_gemini_context()
+    prompt = (
+        "You are scoring campus safety incident reports. "
+        "Use the scoring guidance, the current report, and the recent incident "
+        "history for context. Return ONLY valid JSON with this shape: "
+        "{\"severity\": <integer 1-5>, "
+        "\"risk_label\": \"<short label>\", "
+        "\"confidence\": <float 0-1>, "
+        "\"reason_codes\": [\"<snake_case_reason>\"]}.\n\n"
+        f"Scoring guidance:\n{guidance_text}\n\n"
+        f"Current report:\n{text}\n\n"
+        f"Recent incident history (most recent first):\n{history_text}"
+    )
 
-        payload = _extract_json_dict(response_text)
-        if payload is None:
-            _debug_ai("Gemini response could not be parsed as JSON; using fallback score.")
-            return _fallback_score(text, history=history)
-
-        _debug_ai(f"Gemini parsed payload: {payload}")
-        return _normalize_ai_result(payload, text, history=history)
-    except Exception as exc:
-        _debug_ai(f"Gemini request failed: {exc!r}; using fallback score.")
+    api_keys = _gemini_api_keys()
+    if not api_keys:
+        _debug_ai("No Gemini API keys configured; using fallback score.")
         return _fallback_score(text, history=history)
+    model_candidates = _gemini_models()
+    if not model_candidates:
+        _debug_ai("No Gemini models configured; using fallback score.")
+        return _fallback_score(text, history=history)
+
+    last_error: Exception | None = None
+    for model_index, model_name in enumerate(model_candidates, start=1):
+        for key_index, api_key in enumerate(api_keys, start=1):
+            try:
+                client = _build_genai_client(api_key=api_key)
+                response = client.models.generate_content(model=model_name, contents=prompt)
+                response_text = _response_text(response)
+                _debug_ai(
+                    "Gemini raw response "
+                    f"(model {model_index}/{len(model_candidates)}={model_name}, "
+                    f"key {key_index}/{len(api_keys)}): {response_text!r}"
+                )
+
+                payload = _extract_json_dict(response_text)
+                if payload is None:
+                    raise RuntimeError("Gemini response could not be parsed as JSON.")
+
+                _debug_ai(
+                    "Gemini parsed payload "
+                    f"(model {model_index}/{len(model_candidates)}={model_name}, "
+                    f"key {key_index}/{len(api_keys)}): {payload}"
+                )
+                return _normalize_ai_result(payload, text, history=history, model_used=model_name)
+            except Exception as exc:
+                last_error = exc
+                _debug_ai(
+                    "Gemini request failed "
+                    f"(model {model_index}/{len(model_candidates)}={model_name}, "
+                    f"key {key_index}/{len(api_keys)}): {exc!r}"
+                )
+
+    _debug_ai(f"All Gemini model/key attempts failed; using fallback score. Last error: {last_error!r}")
+    return _fallback_score(text, history=history)
 
 
 def validate_score(text: str, ai_score: int) -> int:
@@ -394,7 +461,7 @@ def score_incident(data: str | dict, history: list[dict[str, Any]] | None = None
     incident = _normalize_incident(data)
     text = _incident_to_text(incident)
 
-    if not _gemini_api_key():
+    if not _gemini_api_keys():
         score = _fallback_score(text, history=history)
         return {"incident": incident, "score": _apply_score_validation(text, score)}
 

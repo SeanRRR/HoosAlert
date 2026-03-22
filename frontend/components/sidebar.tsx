@@ -3,52 +3,38 @@
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Plus, Bell } from "lucide-react"
 import { AlertCard } from "./alert-card"
+import type { MapReport } from "./incident-live-map"
 
-const sampleAlerts = [
-  {
-    id: 1,
-    title: "Suspicious activity reported near Main Library",
-    location: "Alderman Library",
-    time: "5 min ago",
-    severity: "high" as const,
-  },
-  {
-    id: 2,
-    title: "Weather advisory: Heavy rain expected",
-    location: "Campus-wide",
-    time: "15 min ago",
-    severity: "medium" as const,
-  },
-  {
-    id: 3,
-    title: "Building maintenance in progress",
-    location: "Engineering Hall",
-    time: "1 hour ago",
-    severity: "low" as const,
-  },
-  {
-    id: 4,
-    title: "Traffic disruption on University Ave",
-    location: "University Avenue",
-    time: "2 hours ago",
-    severity: "medium" as const,
-  },
-  {
-    id: 5,
-    title: "Fire drill scheduled for tomorrow",
-    location: "Newcomb Hall",
-    time: "3 hours ago",
-    severity: "low" as const,
-  },
-]
+type Props = {
+  reports: MapReport[]
+}
 
-export function Sidebar() {
+function toAlertSeverity(severity: number): "high" | "medium" | "low" {
+  if (severity >= 4) return "high"
+  if (severity >= 3) return "medium"
+  return "low"
+}
+
+function formatRelativeTime(updatedAt?: string | null): string {
+  if (!updatedAt) return "just now"
+
+  const timestamp = new Date(updatedAt).getTime()
+  if (!Number.isFinite(timestamp)) return "just now"
+
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+  if (deltaSeconds < 60) return "just now"
+  if (deltaSeconds < 3600) return `${Math.floor(deltaSeconds / 60)} min ago`
+  if (deltaSeconds < 86400) return `${Math.floor(deltaSeconds / 3600)} hr ago`
+
+  const days = Math.floor(deltaSeconds / 86400)
+  return `${days} day${days === 1 ? "" : "s"} ago`
+}
+
+export function Sidebar({ reports }: Props) {
   const router = useRouter()
 
   return (
     <aside className="h-full flex flex-col bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-      
-      {/* Report Incident Button */}
       <div className="p-5">
         <button
           onClick={() => router.push("/report")}
@@ -60,7 +46,6 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Alerts Panel */}
       <div className="flex-1 flex flex-col min-h-0 px-5 pb-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -68,28 +53,26 @@ export function Sidebar() {
             <h2 className="font-semibold text-foreground">Recent Alerts</h2>
           </div>
           <span className="text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full">
-            {sampleAlerts.length} new
+            {reports.length} live
           </span>
         </div>
 
-        {/* Scrollable alerts list */}
         <div className="flex-1 overflow-y-auto space-y-3 pr-1 -mr-1">
-          {sampleAlerts.map((alert) => (
-            <AlertCard
-              key={alert.id}
-              title={alert.title}
-              location={alert.location}
-              time={alert.time}
-              severity={alert.severity}
-            />
-          ))}
-        </div>
-
-        {/* View all link */}
-        <div className="pt-4 mt-4 border-t border-border">
-          <button className="w-full text-sm text-primary hover:text-primary/80 font-medium transition-colors">
-            View all alerts →
-          </button>
+          {reports.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No live reports yet.
+            </div>
+          ) : (
+            reports.map((report) => (
+              <AlertCard
+                key={report.id}
+                title={report.type}
+                location={report.location}
+                time={formatRelativeTime(report.updatedAt)}
+                severity={toAlertSeverity(report.severity)}
+              />
+            ))
+          )}
         </div>
       </div>
     </aside>
