@@ -13,3 +13,6 @@ venv/
 
 # Ignore custom attribute files
 .DS_Store
+
+# ignore node_modules directory
+node_modules/
