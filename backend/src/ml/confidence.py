@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,10 +15,25 @@ except ImportError:
     genai = None
 
 
+class GeminiSimilarityError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_codes: list[str] | None = None,
+        attempts: int = 0,
+        failure_counts: dict[str, int] | None = None,
+    ):
+        super().__init__(message)
+        self.reason_codes = reason_codes or []
+        self.attempts = max(0, int(attempts))
+        self.failure_counts = failure_counts or {}
+
+
 _BACKEND_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(_BACKEND_ENV_PATH, override=False)
 
-_TIMESTAMP_FIELDS = ("timestamp", "created_at", "scored_at")
+_TIMESTAMP_FIELDS = ("timestamp", "created_at")
 _LAT_FIELDS = ("latitude", "lat")
 _LON_FIELDS = ("longitude", "lng", "lon")
 _TEXT_FIELDS = ("description", "title", "incidentType", "incident_type", "risk_label", "location")
@@ -25,6 +41,21 @@ _MIN_CONFIDENCE = 0.02
 _MAX_CONFIDENCE = 0.98
 _DISTANCE_DECAY_KM = 1.25
 _TIME_DECAY_HOURS = 16.0
+
+_GEMINI_PAIR_ATTEMPTS = int(os.getenv("GEMINI_CONFIDENCE_PAIR_ATTEMPTS", "2") or "2")
+_GEMINI_PAIR_ATTEMPTS = max(1, min(_GEMINI_PAIR_ATTEMPTS, 3))
+
+_GEMINI_RETRY_PAUSE_MS = int(os.getenv("GEMINI_CONFIDENCE_RETRY_PAUSE_MS", "120") or "120")
+_GEMINI_RETRY_PAUSE_MS = max(0, min(_GEMINI_RETRY_PAUSE_MS, 5000))
+
+_GEMINI_COOLDOWN_SEC = int(os.getenv("GEMINI_CONFIDENCE_COOLDOWN_SEC", "60") or "60")
+_GEMINI_COOLDOWN_SEC = max(1, min(_GEMINI_COOLDOWN_SEC, 3600))
+
+_GEMINI_INVALID_KEY_COOLDOWN_SEC = int(os.getenv("GEMINI_CONFIDENCE_INVALID_KEY_COOLDOWN_SEC", str(24 * 3600)) or str(24 * 3600))
+_GEMINI_INVALID_KEY_COOLDOWN_SEC = max(60, min(_GEMINI_INVALID_KEY_COOLDOWN_SEC, 7 * 24 * 3600))
+
+_PAIR_BLOCK_UNTIL_MONO: dict[tuple[str, str], float] = {}
+_CLIENT_BY_KEY: dict[str, Any] = {}
 
 
 def _utc_now_iso() -> str:
@@ -85,10 +116,70 @@ def _gemini_api_keys() -> list[str]:
 def _build_genai_client(api_key: str | None = None):
     if genai is None:
         raise RuntimeError("google-genai is not installed.")
-    api_key = (api_key or _gemini_api_key()).strip()
-    if not api_key:
+
+    resolved_api_key = (api_key or _gemini_api_key()).strip()
+    if not resolved_api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    return genai.Client(api_key=api_key)
+
+    cached = _CLIENT_BY_KEY.get(resolved_api_key)
+    if cached is not None:
+        return cached
+
+    client = genai.Client(api_key=resolved_api_key)
+    _CLIENT_BY_KEY[resolved_api_key] = client
+    return client
+
+
+def _sanitize_reason_codes(raw_codes: Any, default_code: str) -> list[str]:
+    if not isinstance(raw_codes, list):
+        return [default_code]
+
+    clean_codes: list[str] = []
+    for item in raw_codes:
+        if not isinstance(item, str):
+            continue
+        normalized = re.sub(r"[^a-z0-9_]+", "_", item.strip().lower()).strip("_")
+        if normalized:
+            clean_codes.append(normalized)
+
+    deduped = list(dict.fromkeys(clean_codes))
+    return deduped or [default_code]
+
+
+def _extract_first_json_object(raw_text: str) -> str | None:
+    start = raw_text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(raw_text)):
+        ch = raw_text[index]
+
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+            continue
+
+        if ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw_text[start : index + 1]
+
+    return None
 
 
 def _extract_json_dict(raw_text: str) -> dict[str, Any] | None:
@@ -107,12 +198,12 @@ def _extract_json_dict(raw_text: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-    if not match:
+    candidate = _extract_first_json_object(raw)
+    if not candidate:
         return None
 
     try:
-        payload = json.loads(match.group(0))
+        payload = json.loads(candidate)
         if isinstance(payload, dict):
             return payload
     except json.JSONDecodeError:
@@ -163,9 +254,17 @@ def _incident_timestamp(incident: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _first_float_for_fields(incident: dict[str, Any], fields: tuple[str, ...]) -> float | None:
+    for field in fields:
+        parsed = _to_float(incident.get(field))
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _incident_coords(incident: dict[str, Any]) -> tuple[float | None, float | None]:
-    lat = next((_to_float(incident.get(field)) for field in _LAT_FIELDS if _to_float(incident.get(field)) is not None), None)
-    lon = next((_to_float(incident.get(field)) for field in _LON_FIELDS if _to_float(incident.get(field)) is not None), None)
+    lat = _first_float_for_fields(incident, _LAT_FIELDS)
+    lon = _first_float_for_fields(incident, _LON_FIELDS)
     return lat, lon
 
 
@@ -237,7 +336,6 @@ def _distance_similarity(incident1: dict[str, Any], incident2: dict[str, Any]) -
     if None in (lat1, lon1, lat2, lon2):
         return None
     distance_km = _haversine_km(lat1, lon1, lat2, lon2)
-    # Exponential spatial decay with a slightly slower drop-off than before.
     return math.exp(-distance_km / _DISTANCE_DECAY_KM)
 
 
@@ -247,7 +345,6 @@ def _time_similarity(incident1: dict[str, Any], incident2: dict[str, Any]) -> fl
     if ts1 is None or ts2 is None:
         return None
     delta_hours = abs((ts1 - ts2).total_seconds()) / 3600.0
-    # Exponential temporal decay with a slightly slower drop-off than before.
     return math.exp(-delta_hours / _TIME_DECAY_HOURS)
 
 
@@ -283,7 +380,6 @@ def _calibrate_probability(raw_score: float) -> float:
 
 
 def _apply_information_decay(score: float, coverage: float) -> float:
-    # Missing feature coverage should always slightly reduce confidence.
     decay_factor = 0.85 + 0.15 * max(0.0, min(coverage, 1.0))
     return score * decay_factor
 
@@ -342,6 +438,74 @@ def _deterministic_similarity(
     }
 
 
+def _extract_retry_delay_seconds(message: str) -> int | None:
+    patterns = [
+        r"retry in\s+([0-9]+(?:\.[0-9]+)?)s",
+        r"retrydelay\W*([0-9]+)s",
+    ]
+    lowered = message.lower()
+    for pattern in patterns:
+        match = re.search(pattern, lowered, flags=re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            return max(1, math.ceil(float(match.group(1))))
+        except ValueError:
+            continue
+    return None
+
+
+def _classify_gemini_error(exc: Exception) -> str:
+    message = str(exc).lower()
+
+    if "api_key_invalid" in message or "api key not valid" in message:
+        return "invalid_key"
+    if "resource_exhausted" in message or "quota exceeded" in message or "429" in message:
+        return "quota_exhausted"
+    if "not_found" in message or "is not found" in message:
+        return "model_not_found"
+    if "timeout" in message or "timed out" in message or "deadline" in message:
+        return "timeout"
+    if "service unavailable" in message or "503" in message or "unavailable" in message:
+        return "service_unavailable"
+    if "permission" in message or "forbidden" in message or "403" in message:
+        return "permission_denied"
+    if "connection" in message or "network" in message or "dns" in message:
+        return "network_error"
+    return "request_error"
+
+
+def _cooldown_seconds_for_error(error_kind: str, exc: Exception) -> int:
+    retry_delay = _extract_retry_delay_seconds(str(exc))
+    if retry_delay is not None:
+        return retry_delay
+
+    if error_kind == "invalid_key":
+        return _GEMINI_INVALID_KEY_COOLDOWN_SEC
+    if error_kind == "model_not_found":
+        return 6 * 3600
+    if error_kind in {"quota_exhausted", "timeout", "service_unavailable", "network_error", "request_error"}:
+        return _GEMINI_COOLDOWN_SEC
+    return _GEMINI_COOLDOWN_SEC
+
+
+def _should_retry_error(error_kind: str) -> bool:
+    return error_kind in {
+        "quota_exhausted",
+        "timeout",
+        "service_unavailable",
+        "network_error",
+        "request_error",
+        "invalid_json",
+    }
+
+
+def _prune_pair_block_cache(now_mono: float) -> None:
+    stale_pairs = [pair for pair, blocked_until in _PAIR_BLOCK_UNTIL_MONO.items() if blocked_until <= now_mono]
+    for pair in stale_pairs:
+        _PAIR_BLOCK_UNTIL_MONO.pop(pair, None)
+
+
 def _gemini_similarity(
     incident1: dict[str, Any],
     incident2: dict[str, Any],
@@ -359,50 +523,115 @@ def _gemini_similarity(
         f"Incident 2:\n{json.dumps(incident2, indent=2, sort_keys=True)}\n\n"
         f"Deterministic feature summary:\n{json.dumps(deterministic_summary, indent=2, sort_keys=True)}"
     )
+
     api_keys = _gemini_api_keys()
     if not api_keys:
-        raise RuntimeError("No Gemini API keys configured.")
+        raise GeminiSimilarityError(
+            "No Gemini API keys configured.",
+            reason_codes=["gemini_error_no_api_keys"],
+        )
+
     model_candidates = _confidence_models()
     if not model_candidates:
-        raise RuntimeError("No Gemini models configured.")
+        raise GeminiSimilarityError(
+            "No Gemini models configured.",
+            reason_codes=["gemini_error_no_models"],
+        )
+
+    now_mono = time.monotonic()
+    _prune_pair_block_cache(now_mono)
 
     last_error: Exception | None = None
+    failure_counts: dict[str, int] = {}
+    technical_reason_codes: list[str] = []
+    attempts = 0
+    skipped_pairs = 0
+    total_pairs = len(api_keys) * len(model_candidates)
+
     for model_name in model_candidates:
         for api_key in api_keys:
-            try:
-                client = _build_genai_client(api_key=api_key)
-                response = client.models.generate_content(model=model_name, contents=prompt)
-                payload = _extract_json_dict(_response_text(response))
-                if payload is None:
-                    raise RuntimeError("Gemini similarity response was not valid JSON.")
+            pair_key = (model_name, api_key)
+            blocked_until = _PAIR_BLOCK_UNTIL_MONO.get(pair_key, 0.0)
+            if blocked_until > time.monotonic():
+                skipped_pairs += 1
+                technical_reason_codes.append("gemini_pair_temporarily_skipped")
+                continue
 
+            for attempt_index in range(1, _GEMINI_PAIR_ATTEMPTS + 1):
+                attempts += 1
                 try:
-                    semantic_similarity = float(payload.get("semantic_similarity"))
-                except (TypeError, ValueError):
-                    semantic_similarity = deterministic_summary["calibrated_score"]
+                    client = _build_genai_client(api_key=api_key)
+                    response = client.models.generate_content(model=model_name, contents=prompt)
+                    payload = _extract_json_dict(_response_text(response))
+                    if payload is None:
+                        error_kind = "invalid_json"
+                        failure_counts[error_kind] = failure_counts.get(error_kind, 0) + 1
+                        technical_reason_codes.append(f"gemini_error_{error_kind}")
+                        if attempt_index < _GEMINI_PAIR_ATTEMPTS and _should_retry_error(error_kind):
+                            if _GEMINI_RETRY_PAUSE_MS > 0:
+                                time.sleep(_GEMINI_RETRY_PAUSE_MS / 1000.0)
+                            continue
+                        break
 
-                try:
-                    match_confidence = float(payload.get("match_confidence"))
-                except (TypeError, ValueError):
-                    match_confidence = semantic_similarity
+                    try:
+                        semantic_similarity = float(payload.get("semantic_similarity"))
+                    except (TypeError, ValueError):
+                        semantic_similarity = deterministic_summary["calibrated_score"]
 
-                semantic_similarity = max(0.0, min(semantic_similarity, 1.0))
-                match_confidence = max(0.0, min(match_confidence, 1.0))
-                raw_reason_codes = payload.get("reason_codes")
-                reason_codes = [code for code in raw_reason_codes if isinstance(code, str) and code.strip()] if isinstance(raw_reason_codes, list) else []
-                if not reason_codes:
-                    reason_codes = ["gemini_similarity_default"]
+                    try:
+                        match_confidence = float(payload.get("match_confidence"))
+                    except (TypeError, ValueError):
+                        match_confidence = semantic_similarity
 
-                return {
-                    "semantic_similarity": semantic_similarity,
-                    "match_confidence": match_confidence,
-                    "reason_codes": reason_codes,
-                    "model_version": model_name,
-                }
-            except Exception as exc:
-                last_error = exc
+                    semantic_similarity = max(0.0, min(semantic_similarity, 1.0))
+                    match_confidence = max(0.0, min(match_confidence, 1.0))
+                    reason_codes = _sanitize_reason_codes(payload.get("reason_codes"), "gemini_similarity_default")
 
-    raise RuntimeError(f"All Gemini model/key attempts failed. Last error: {last_error!r}")
+                    return {
+                        "semantic_similarity": semantic_similarity,
+                        "match_confidence": match_confidence,
+                        "reason_codes": reason_codes,
+                        "model_version": model_name,
+                        "attempts": attempts,
+                        "failure_counts": failure_counts,
+                    }
+                except Exception as exc:
+                    last_error = exc
+                    error_kind = _classify_gemini_error(exc)
+                    failure_counts[error_kind] = failure_counts.get(error_kind, 0) + 1
+                    technical_reason_codes.append(f"gemini_error_{error_kind}")
+
+                    cooldown_seconds = _cooldown_seconds_for_error(error_kind, exc)
+                    if cooldown_seconds > 0:
+                        _PAIR_BLOCK_UNTIL_MONO[pair_key] = max(
+                            _PAIR_BLOCK_UNTIL_MONO.get(pair_key, 0.0),
+                            time.monotonic() + cooldown_seconds,
+                        )
+
+                    if attempt_index < _GEMINI_PAIR_ATTEMPTS and _should_retry_error(error_kind):
+                        if _GEMINI_RETRY_PAUSE_MS > 0:
+                            time.sleep(_GEMINI_RETRY_PAUSE_MS / 1000.0)
+                        continue
+                    break
+
+    if skipped_pairs >= total_pairs and attempts == 0:
+        technical_reason_codes.append("gemini_all_pairs_temporarily_blocked")
+
+    error_codes = _sanitize_reason_codes(
+        list(dict.fromkeys(technical_reason_codes)),
+        default_code="gemini_similarity_unavailable",
+    )
+
+    raise GeminiSimilarityError(
+        (
+            "All Gemini model/key attempts failed or were skipped. "
+            f"attempts={attempts}, skipped_pairs={skipped_pairs}, total_pairs={total_pairs}, "
+            f"last_error={last_error!r}"
+        ),
+        reason_codes=error_codes,
+        attempts=attempts,
+        failure_counts=failure_counts,
+    )
 
 
 def incident_match_confidence(
@@ -419,6 +648,9 @@ def incident_match_confidence(
 
     final_confidence = deterministic["calibrated_score"]
     model_version = _confidence_model()
+    gemini_attempts = 0
+    gemini_failure_counts: dict[str, int] = {}
+
     if use_gemini:
         try:
             gemini_result = _gemini_similarity(incident1, incident2, deterministic)
@@ -426,12 +658,25 @@ def incident_match_confidence(
             final_confidence = 0.55 * deterministic["calibrated_score"] + 0.45 * gemini_result["match_confidence"]
             reason_codes.extend(gemini_result["reason_codes"])
             model_version = str(gemini_result.get("model_version", model_version))
+            gemini_attempts = int(gemini_result.get("attempts", 0))
+            gemini_failure_counts = {
+                key: int(value)
+                for key, value in (gemini_result.get("failure_counts") or {}).items()
+                if isinstance(key, str)
+            }
             fallback_used = False
+        except GeminiSimilarityError as exc:
+            reason_codes.append("gemini_similarity_unavailable")
+            reason_codes.extend(exc.reason_codes)
+            gemini_attempts = exc.attempts
+            gemini_failure_counts = exc.failure_counts
         except Exception:
             reason_codes.append("gemini_similarity_unavailable")
+    else:
+        reason_codes.append("gemini_similarity_disabled")
 
     allow_extremes = _allow_extreme_confidence(incident1, incident2)
-    deduped_reason_codes = list(dict.fromkeys(reason_codes))
+    deduped_reason_codes = _sanitize_reason_codes(list(dict.fromkeys(reason_codes)), "confidence_computed")
     return {
         "incident_1": incident1,
         "incident_2": incident2,
@@ -446,5 +691,7 @@ def incident_match_confidence(
         "prompt_version": _confidence_prompt_version(),
         "fallback_used": fallback_used,
         "allow_extreme_confidence": allow_extremes,
+        "gemini_attempts": gemini_attempts,
+        "gemini_failure_counts": gemini_failure_counts,
         "scored_at": _utc_now_iso(),
     }
