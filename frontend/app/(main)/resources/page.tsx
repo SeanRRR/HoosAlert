@@ -24,17 +24,14 @@ export default function ResourcesPage() {
             <h2 className="font-semibold">Emergency</h2>
           </div>
           <ul className="text-sm space-y-2">
+            <li>🚨 Emergency: <a href="tel:911" className="hover:underline font-bold">911</a></li>
+            <li>🚓 UVA Police: <a href="tel:+14349247166" className="hover:underline">(434) 924-7166</a></li>
             <li>
-              🚨 Emergency:{" "}
-              <a href="tel:911" className="font-bold hover:underline">911</a>
-            </li>
-            <li>
-              🚓 UVA Police:{" "}
-              <a href="tel:+14349247166" className="hover:underline">
-                (434) 924-7166
+              🔵{" "}
+              <a href="https://veoci.com/v/p/dashboard/pg9g6m" target="_blank" className="hover:underline">
+                Blue Light Phones across Grounds
               </a>
             </li>
-            <li>🔵 Blue Light Phones across Grounds</li>
           </ul>
         </div>
 
@@ -47,19 +44,13 @@ export default function ResourcesPage() {
           <ul className="text-sm space-y-2">
             <li>
               🛡️{" "}
-              <a href="https://uvapolice.virginia.edu/safety-escort" target="_blank" className="hover:underline">
+              <a href="https://ambassadors.uvapolice.virginia.edu/safe-walk-students" target="_blank" className="hover:underline">
                 UVA Safety Escort Service
               </a>
             </li>
             <li>
-              📱{" "}
-              <a href="https://virginia.edu/livesafe" target="_blank" className="hover:underline">
-                LiveSafe App
-              </a>
-            </li>
-            <li>
               🚨{" "}
-              <a href="https://uvaemergency.virginia.edu/" target="_blank" className="hover:underline">
+              <a href="https://uvaemergency.virginia.edu/uva-alerts" target="_blank" className="hover:underline">
                 Emergency Alerts System
               </a>
             </li>
@@ -87,17 +78,22 @@ export default function ResourcesPage() {
             </li>
             <li>
               🧠{" "}
-              <a href="https://www.studenthealth.virginia.edu/caps" target="_blank" className="hover:underline">
+              <a href="https://mentalhealthservices.studenthealth.virginia.edu/" target="_blank" className="hover:underline">
                 CAPS (Counseling Services)
               </a>
             </li>
             <li>
               🏨{" "}
-              <a href="https://uvahealth.com/" target="_blank" className="hover:underline">
+              <a href="https://www.medicalcenter.virginia.edu/" target="_blank" className="hover:underline">
                 UVA Medical Center
               </a>
             </li>
-            <li>💊 Pharmacy Services</li>
+            <li>
+              💊{" "}
+              <a href="https://www.uvahealth.com/find-care/services/pharmacy" target="_blank" className="hover:underline">
+                Pharmacy Services
+              </a>
+            </li>
           </ul>
         </div>
 
@@ -110,18 +106,22 @@ export default function ResourcesPage() {
           <ul className="text-sm space-y-2">
             <li>
               🚌{" "}
-              <a href="https://parking.virginia.edu/cat" target="_blank" className="hover:underline">
+              <a href="https://parking.virginia.edu/uts-serviceroutes" target="_blank" className="hover:underline">
                 UVA Bus System
               </a>
             </li>
             <li>
               🌙{" "}
-              <a href="https://parking.virginia.edu/night-pilot" target="_blank" className="hover:underline">
+              <a href="https://parking.virginia.edu/uts-ondemand" target="_blank" className="hover:underline">
                 Night Pilot Safety Shuttle
               </a>
             </li>
-            <li>🚕 Uber / Lyft pickup zones</li>
-            <li>🚲 Bike Share / Trails</li>
+            <li>
+              🧭{" "}
+              <a href="https://uva.transloc.com/routes" target="_blank" className="hover:underline">
+                UVA Transloc
+              </a>
+            </li>
           </ul>
         </div>
 
@@ -138,17 +138,22 @@ export default function ResourcesPage() {
                 Academic Advising
               </a>
             </li>
-            <li>🧑‍🏫 Office Hours & Tutoring</li>
             <li>
               🏫{" "}
-              <a href="https://odos.virginia.edu/" target="_blank" className="hover:underline">
+              <a href="https://studentaffairs.virginia.edu/staff" target="_blank" className="hover:underline">
                 Dean of Students Office
               </a>
             </li>
             <li>
               📖{" "}
-              <a href="https://writingrhetoric.as.virginia.edu/writing-center" target="_blank" className="hover:underline">
+              <a href="https://writingrhetoric.as.virginia.edu/welcome-writing-center" target="_blank" className="hover:underline">
                 Writing Center
+              </a>
+            </li>
+            <li>
+              💼{" "}
+              <a href="https://career.virginia.edu/" target="_blank" className="hover:underline">
+                UVA Career Center
               </a>
             </li>
           </ul>
@@ -161,18 +166,16 @@ export default function ResourcesPage() {
             <h2 className="font-semibold">Reporting & Help</h2>
           </div>
           <ul className="text-sm space-y-2">
-            <li>🚨 HoosAlert Reporting System</li>
             <li>
-              👮{" "}
-              <a href="tel:+14349247166" className="hover:underline">
-                Report to UVA Police
+              🚨{" "}
+              <a href="https://report.virginia.edu/" target="_blank" className="hover:underline">
+                Anonymous UVA Reporting
               </a>
             </li>
-            <li>📝 Anonymous reporting options</li>
             <li>
-              📢{" "}
-              <a href="https://uvaemergency.virginia.edu/" target="_blank" className="hover:underline">
-                Emergency notification system
+              👮{" "}
+              <a href="https://uvapolice.virginia.edu/report-crime" target="_blank" className="hover:underline">
+                Report to UVA Police
               </a>
             </li>
           </ul>
