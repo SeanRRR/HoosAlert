@@ -85,6 +85,8 @@ async def create_report(report: ReportSubmission):
         "title": incident_type,
         "description": description,
         "location": location,
+        "latitude": report.latitude,
+        "longitude": report.longitude,
         "severity": severity,
         "reporter_id": reporter_id,
         "source": "user_report",

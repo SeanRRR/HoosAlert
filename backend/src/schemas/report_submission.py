@@ -6,3 +6,5 @@ class ReportSubmission(BaseModel):
     location: str
     computingId: str
     description: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None

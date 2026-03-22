@@ -56,19 +56,38 @@ def validate_score(text: str, ai_score: int) -> int:
         return 5
     return ai_score
 
-def score_incident(data: dict) -> dict:
+def _normalize_input(data: str | dict) -> str:
+    """
+    Normalize either raw text or a structured report dict into a single text blob.
+    """
+    if isinstance(data, str):
+        return data
+
+    if isinstance(data, dict):
+        incident_type = data.get("incident_type") or data.get("incidentType") or data.get("title") or ""
+        location = data.get("location") or ""
+        reporter = data.get("computingID") or data.get("computingId") or data.get("reporter_id") or ""
+        timestamp = data.get("timestamp") or data.get("created_at") or ""
+        description = data.get("description") or ""
+
+        return (
+            f"Incident Type: {incident_type}, "
+            f"Description: {description}, "
+            f"Location: {location}, "
+            f"Reporter: {reporter}, "
+            f"Timestamp: {timestamp}"
+        )
+
+    return str(data)
+
+
+def score_incident(data: str | dict) -> dict:
     """
     Score incident severity.
     Accepts structured input (dictionary) and combines fields into a single text string.
     Falls back to keyword heuristics if Gemini client/model is unavailable.
     """
-    # Combine the fields into a single string for processing
-    text = (
-        f"Incident Type: {data['incident_type']}, "
-        f"Location: {data['location']}, "
-        f"Computing ID: {data['computingID']}, "
-        f"Timestamp: {data['timestamp']}"
-    )
+    text = _normalize_input(data)
     if not _GEMINI_API_KEY:
         return _fallback_score(text)
     

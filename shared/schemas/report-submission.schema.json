@@ -25,6 +25,20 @@
       "type": "string",
       "minLength": 1,
       "description": "Optional free-text description. Falls back to incidentType if omitted."
+    },
+    "latitude": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Optional report latitude from map pin."
+    },
+    "longitude": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Optional report longitude from map pin."
     }
   },
   "required": [
@@ -36,7 +50,9 @@
     {
       "incidentType": "Suspicious Activity",
       "location": "Rice Hall (Computer Science)",
-      "computingId": "abc123"
+      "computingId": "abc123",
+      "latitude": 38.0336,
+      "longitude": -78.508
     }
   ]
 }
