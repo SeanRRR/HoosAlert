@@ -1,63 +1,139 @@
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from schemas.report import ReportSubmission
+from datetime import datetime, timezone
 
-# Import your sub-modules
-from socket_manager import manager
-import ai_logic 
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from src.database import get_incidents, save_incident
+from src.ml.logic import score_incident
+from src.ml.validator import validate_score
+from src.socket_manager import manager
 
 app = FastAPI(title="HoosAlert Backend")
 
-# --- CORS SETUP ---
-# Allows Reed's frontend (localhost:3000) to talk to this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Open for hackathon speed; restrict to ["http://localhost:3000"] later
+    allow_origins=["*"],  # Open for hackathon speed; restrict later for production.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- ROUTES ---
+
+class Report(BaseModel):
+    title: str
+    description: str
+    location: str
+
+
+class ReportSubmission(BaseModel):
+    incidentType: str
+    location: str
+    computingId: str
+    description: str | None = None
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 
 @app.get("/")
-async def health_check():
+async def root_health():
     return {"status": "HoosAlert API is online"}
 
-@app.post("/api/report")
-async def handle_report(report: ReportSubmission):
-    """
-    The Core Pipeline:
-    1. Receive raw text from Reed's UI.
-    2. Pass it to the Gemini 'Brain'.
-    3. Broadcast the resulting JSON to all live map users.
-    """
-    raw_text = report.text
-    
-    # Send to Gemini (ai_logic.py)
-    processed_incident = ai_logic.process_with_gemini(raw_text)
-    
-    # Broadcast to WebSockets (socket_manager.py)
-    await manager.broadcast(processed_incident)
-    
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/submit")
+async def submit_report(report: Report):
+    ai_result = score_incident(report.description)
+    severity = validate_score(report.description, ai_result["severity"])
+    incident_data = {
+        "title": report.title,
+        "description": report.description,
+        "location": report.location,
+        "severity": severity,
+        "source": "legacy_submit",
+        "created_at": _utc_now_iso(),
+    }
+    incident_id = await save_incident(incident_data)
+    payload = {**incident_data, "id": incident_id}
+    await manager.broadcast(payload)
     return {
-        "status": "Incident Processed",
-        "incident": processed_incident
+        "received": report,
+        "severity": severity,
+        "incident_id": incident_id,
+        "message": "Report submitted successfully",
     }
 
-# --- WEBSOCKET ENDPOINT ---
+
+@app.post("/api/report")
+async def create_report(report: ReportSubmission):
+    incident_type = report.incidentType.strip()
+    location = report.location.strip()
+    reporter_id = report.computingId.strip()
+
+    if not incident_type or not location or not reporter_id:
+        raise HTTPException(
+            status_code=422,
+            detail="incidentType, location, and computingId are required",
+        )
+
+    description = (report.description or incident_type).strip()
+
+    ai_result = score_incident(description)
+    severity = validate_score(description, ai_result["severity"])
+
+    incident_data = {
+        "title": incident_type,
+        "description": description,
+        "location": location,
+        "severity": severity,
+        "reporter_id": reporter_id,
+        "source": "user_report",
+        "created_at": _utc_now_iso(),
+    }
+
+    incident_id = await save_incident(incident_data)
+    payload = {**incident_data, "id": incident_id}
+    await manager.broadcast(payload)
+
+    return {
+        "message": "Report submitted successfully",
+        "incident": payload,
+    }
+
+
+@app.get("/api/incidents")
+async def list_incidents(limit: int = 100):
+    incidents = await get_incidents(limit=limit)
+    return {"incidents": incidents}
+
+
+@app.post("/score")
+async def score_endpoint(payload: dict):
+    text = payload.get("text", "")
+    ai_result = score_incident(text)
+    severity = validate_score(text, ai_result["severity"])
+    return {"severity": severity, "input": payload}
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Keep the connection open
-            await websocket.receive_text() 
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+    except Exception:
+        manager.disconnect(websocket)
+
 
 if __name__ == "__main__":
-    # Runs the server on http://localhost:8000
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import uvicorn
+
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,4 +1,10 @@
 from fastapi import HTTPException
+import os
+import sys
+
+# Add the repository root to the Python path for local test execution.
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 from backend.src.auth import verify_token
 
 def test_verify_token_valid():

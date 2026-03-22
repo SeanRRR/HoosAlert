@@ -1,7 +1,5 @@
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import WebSocket
 import json
-
-app = FastAPI()
 
 class ConnectionManager:
     def __init__(self):
@@ -12,7 +10,8 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
         data = json.dumps(message)
@@ -20,20 +19,3 @@ class ConnectionManager:
             await connection.send_text(data)
 
 manager = ConnectionManager()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Keep the connection alive
-            await websocket.receive_text()
-    except Exception:
-        manager.disconnect(websocket)
-
-@app.post("/api/report")
-async def handle_report(request: Request):
-    data = await request.json()
-    # Process the data if needed
-    await manager.broadcast(data)
-    return {"message": "Report received and broadcasted"}
