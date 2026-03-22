@@ -1,16 +1,16 @@
 "use client"
 
-import { Shield, Phone, AlertTriangle, Heart, Bus, BookOpen, ExternalLink } from "lucide-react"
+import { Shield, Phone, AlertTriangle, Heart, Bus, BookOpen } from "lucide-react"
 
 export default function ResourcesPage() {
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-10">
+    <div className="min-h-screen bg-background p-10">
 
-      {/* TITLE */}
-      <div className="mb-8">
+      {/* HEADER */}
+      <div className="mb-10">
         <h1 className="text-3xl font-bold">Campus Resources</h1>
         <p className="text-muted-foreground mt-2">
-          Quick access to UVA safety, health, transportation, and student support.
+          Quick access to UVA safety, health, and student support services.
         </p>
       </div>
 
@@ -19,166 +19,163 @@ export default function ResourcesPage() {
 
         {/* EMERGENCY */}
         <div className="bg-card border rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="text-red-500" />
             <h2 className="font-semibold">Emergency</h2>
           </div>
-
-          <div className="space-y-2 text-sm">
-            <p>
-              🚨 Emergency:
-              <a className="text-red-600 font-semibold ml-1" href="tel:911">
-                911
-              </a>
-            </p>
-
-            <p>
-              👮 UVA Police:
-              <a className="text-blue-600 ml-1" href="tel:+14349247166">
+          <ul className="text-sm space-y-2">
+            <li>
+              🚨 Emergency:{" "}
+              <a href="tel:911" className="font-bold hover:underline">911</a>
+            </li>
+            <li>
+              🚓 UVA Police:{" "}
+              <a href="tel:+14349247166" className="hover:underline">
                 (434) 924-7166
               </a>
-            </p>
-
-            <a
-              href="https://uvaemergency.virginia.edu/"
-              target="_blank"
-              className="flex items-center gap-1 text-blue-600 mt-2 hover:underline"
-            >
-              UVA Emergency Info <ExternalLink className="w-4 h-4" />
-            </a>
-          </div>
+            </li>
+            <li>🔵 Blue Light Phones across Grounds</li>
+          </ul>
         </div>
 
         {/* SAFETY */}
         <div className="bg-card border rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <Shield className="text-blue-500" />
             <h2 className="font-semibold">Safety Services</h2>
           </div>
-
-          <div className="space-y-2 text-sm">
-            <a
-              href="https://uvapolice.virginia.edu/safety-escort"
-              target="_blank"
-              className="flex items-center gap-1 text-blue-600 hover:underline"
-            >
-              Safety Escort Service <ExternalLink className="w-4 h-4" />
-            </a>
-
-            <a
-              href="https://virginia.edu/livesafe"
-              target="_blank"
-              className="flex items-center gap-1 text-blue-600 hover:underline"
-            >
-              LiveSafe App <ExternalLink className="w-4 h-4" />
-            </a>
-
-            <a
-              href="https://uvaemergency.virginia.edu/"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Emergency Alerts System
-            </a>
-          </div>
+          <ul className="text-sm space-y-2">
+            <li>
+              🛡️{" "}
+              <a href="https://uvapolice.virginia.edu/safety-escort" target="_blank" className="hover:underline">
+                UVA Safety Escort Service
+              </a>
+            </li>
+            <li>
+              📱{" "}
+              <a href="https://virginia.edu/livesafe" target="_blank" className="hover:underline">
+                LiveSafe App
+              </a>
+            </li>
+            <li>
+              🚨{" "}
+              <a href="https://uvaemergency.virginia.edu/" target="_blank" className="hover:underline">
+                Emergency Alerts System
+              </a>
+            </li>
+            <li>
+              👮{" "}
+              <a href="https://uvapolice.virginia.edu/" target="_blank" className="hover:underline">
+                UVA Police Department
+              </a>
+            </li>
+          </ul>
         </div>
 
         {/* HEALTH */}
         <div className="bg-card border rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <Heart className="text-pink-500" />
             <h2 className="font-semibold">Health & Wellness</h2>
           </div>
-
-          <div className="space-y-2 text-sm">
-            <a
-              href="https://www.studenthealth.virginia.edu/"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Student Health Center
-            </a>
-
-            <a
-              href="https://www.studenthealth.virginia.edu/caps"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              CAPS (Counseling & Psychological Services)
-            </a>
-
-            <a
-              href="https://uvahealth.com/"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              UVA Medical Center
-            </a>
-          </div>
+          <ul className="text-sm space-y-2">
+            <li>
+              🏥{" "}
+              <a href="https://www.studenthealth.virginia.edu/" target="_blank" className="hover:underline">
+                Student Health Center
+              </a>
+            </li>
+            <li>
+              🧠{" "}
+              <a href="https://www.studenthealth.virginia.edu/caps" target="_blank" className="hover:underline">
+                CAPS (Counseling Services)
+              </a>
+            </li>
+            <li>
+              🏨{" "}
+              <a href="https://uvahealth.com/" target="_blank" className="hover:underline">
+                UVA Medical Center
+              </a>
+            </li>
+            <li>💊 Pharmacy Services</li>
+          </ul>
         </div>
 
         {/* TRANSPORT */}
         <div className="bg-card border rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <Bus className="text-green-500" />
             <h2 className="font-semibold">Transportation</h2>
           </div>
-
-          <div className="space-y-2 text-sm">
-            <a
-              href="https://parking.virginia.edu/cat"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              UVA Bus System (CAT)
-            </a>
-
-            <a
-              href="https://parking.virginia.edu/night-pilot"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Night Pilot Safety Shuttle
-            </a>
-
-            <p>
-              🚕 Uber / Lyft pickup zones available across Grounds
-            </p>
-          </div>
+          <ul className="text-sm space-y-2">
+            <li>
+              🚌{" "}
+              <a href="https://parking.virginia.edu/cat" target="_blank" className="hover:underline">
+                UVA Bus System
+              </a>
+            </li>
+            <li>
+              🌙{" "}
+              <a href="https://parking.virginia.edu/night-pilot" target="_blank" className="hover:underline">
+                Night Pilot Safety Shuttle
+              </a>
+            </li>
+            <li>🚕 Uber / Lyft pickup zones</li>
+            <li>🚲 Bike Share / Trails</li>
+          </ul>
         </div>
 
         {/* ACADEMIC */}
         <div className="bg-card border rounded-xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <BookOpen className="text-purple-500" />
             <h2 className="font-semibold">Academic Support</h2>
           </div>
+          <ul className="text-sm space-y-2">
+            <li>
+              📚{" "}
+              <a href="https://advising.virginia.edu/" target="_blank" className="hover:underline">
+                Academic Advising
+              </a>
+            </li>
+            <li>🧑‍🏫 Office Hours & Tutoring</li>
+            <li>
+              🏫{" "}
+              <a href="https://odos.virginia.edu/" target="_blank" className="hover:underline">
+                Dean of Students Office
+              </a>
+            </li>
+            <li>
+              📖{" "}
+              <a href="https://writingrhetoric.as.virginia.edu/writing-center" target="_blank" className="hover:underline">
+                Writing Center
+              </a>
+            </li>
+          </ul>
+        </div>
 
-          <div className="space-y-2 text-sm">
-            <a
-              href="https://advising.virginia.edu/"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Academic Advising
-            </a>
-
-            <a
-              href="https://writingrhetoric.as.virginia.edu/writing-center"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Writing Center
-            </a>
-
-            <a
-              href="https://odos.virginia.edu/"
-              target="_blank"
-              className="text-blue-600 hover:underline"
-            >
-              Dean of Students Office
-            </a>
+        {/* REPORTING */}
+        <div className="bg-card border rounded-xl p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Phone className="text-orange-500" />
+            <h2 className="font-semibold">Reporting & Help</h2>
           </div>
+          <ul className="text-sm space-y-2">
+            <li>🚨 HoosAlert Reporting System</li>
+            <li>
+              👮{" "}
+              <a href="tel:+14349247166" className="hover:underline">
+                Report to UVA Police
+              </a>
+            </li>
+            <li>📝 Anonymous reporting options</li>
+            <li>
+              📢{" "}
+              <a href="https://uvaemergency.virginia.edu/" target="_blank" className="hover:underline">
+                Emergency notification system
+              </a>
+            </li>
+          </ul>
         </div>
 
       </div>
