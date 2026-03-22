@@ -4,12 +4,10 @@ import re
 import sys
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
 
-# Configure Gemini API key
 _GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if _GEMINI_API_KEY:
-    genai.configure(api_key=_GEMINI_API_KEY)
+_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 _DEBUG_AI_SCORING = os.getenv("DEBUG_AI_SCORING", "").lower() in {"1", "true", "yes", "on"}
 
@@ -21,6 +19,32 @@ _MAX_HISTORY_ITEMS = 25
 def _debug_ai(message: str) -> None:
     if _DEBUG_AI_SCORING:
         print(f"[ai-score-debug] {message}", file=sys.stderr)
+
+
+def _build_genai_client() -> genai.Client:
+    if not _GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    return genai.Client(api_key=_GEMINI_API_KEY)
+
+
+def _response_text(response: Any) -> str:
+    text = getattr(response, "text", "") or ""
+    if text:
+        return text
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return ""
+
+    first_candidate = candidates[0]
+    content = getattr(first_candidate, "content", None)
+    parts = getattr(content, "parts", None) or []
+    fragments = []
+    for part in parts:
+        fragment = getattr(part, "text", None)
+        if fragment:
+            fragments.append(fragment)
+    return "".join(fragments)
 
 def _fallback_score(text: str) -> dict:
     """
@@ -126,12 +150,9 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict:
             f"Current report:\n{text}\n\n"
             f"Recent incident history (most recent first):\n{history_text}"
         )
-        model_cls = getattr(genai, "GenerativeModel", None)
-        if not model_cls:
-            raise RuntimeError("GenerativeModel class not found in genai module.")
-        model = model_cls("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        response_text = getattr(response, "text", "") or ""
+        client = _build_genai_client()
+        response = client.models.generate_content(model=_GEMINI_MODEL, contents=prompt)
+        response_text = _response_text(response)
         _debug_ai(f"Gemini raw response: {response_text!r}")
         payload = _extract_json_dict(response_text)
         if payload is None:

@@ -18,33 +18,36 @@ MOCK_DATA = {
 
 # --- TESTS FOR _ai_score ---
 
-@patch("src.ml.logic.genai.GenerativeModel", create=True)
-def test_ai_score_success(mock_model):
+@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic.genai.Client")
+def test_ai_score_success(mock_client_cls):
     """
     Test _ai_score when the Gemini API call succeeds.
     """
     # Mock the Gemini API response
-    mock_instance = MagicMock()
-    mock_instance.generate_content.return_value = MagicMock(
+    mock_response = MagicMock(
         text='{"severity": 5, "type": "high_risk"}'
     )
-    mock_model.return_value = mock_instance
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_response
+    mock_client_cls.return_value = mock_client
 
     # Call the function
     result = _ai_score(MOCK_TEXT)
 
     # Assertions
     assert result == {"severity": 5, "type": "high_risk"}
-    mock_instance.generate_content.assert_called_once()
+    mock_client.models.generate_content.assert_called_once()
 
 
-@patch("src.ml.logic.genai.GenerativeModel", create=True)
-def test_ai_score_failure(mock_model):
+@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic.genai.Client")
+def test_ai_score_failure(mock_client_cls):
     """
     Test _ai_score when the Gemini API call fails.
     """
     # Mock the Gemini API to raise an exception
-    mock_model.side_effect = Exception("Gemini API error")
+    mock_client_cls.side_effect = Exception("Gemini API error")
 
     # Call the function
     result = _ai_score(MOCK_TEXT)
