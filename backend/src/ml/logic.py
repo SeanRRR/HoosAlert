@@ -10,11 +10,32 @@ _GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if _GEMINI_API_KEY:
     genai.configure(api_key=_GEMINI_API_KEY)
 
+_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+_PROMPT_VERSION = os.getenv("LLM_PROMPT_VERSION", "v1")
+
 # High-impact keywords for validation
 HIGH_IMPACT_KEYWORDS = ["fire", "weapon", "active", "medical", "unconscious", "shooter", "bomb"]
 _MAX_HISTORY_ITEMS = 25
 
-def _fallback_score(text: str) -> dict:
+def _keyword_reason_codes(text: str) -> list[str]:
+    lowered = text.lower()
+    codes = []
+    if any(token in lowered for token in ["weapon", "shooter", "bomb"]):
+        codes.append("keyword_weapon")
+    if any(token in lowered for token in ["fire", "hazard"]):
+        codes.append("keyword_fire")
+    if any(token in lowered for token in ["medical", "unconscious"]):
+        codes.append("keyword_medical")
+    if any(token in lowered for token in ["suspicious", "assault", "harassment"]):
+        codes.append("keyword_security")
+    if any(token in lowered for token in ["traffic", "collision", "accident"]):
+        codes.append("keyword_traffic")
+    if not codes:
+        codes.append("keyword_none")
+    return codes
+
+
+def _fallback_score(text: str) -> dict[str, Any]:
     """
     Fallback scoring based on keyword heuristics.
     """
@@ -25,12 +46,30 @@ def _fallback_score(text: str) -> dict:
     low_risk = ["traffic", "collision", "accident", "noise", "maintenance"]
 
     if any(token in lowered for token in high_risk):
-        return {"severity": 5, "type": "high_risk"}
-    if any(token in lowered for token in medium_risk):
-        return {"severity": 4, "type": "security"}
-    if any(token in lowered for token in low_risk):
-        return {"severity": 2, "type": "general"}
-    return {"severity": 3, "type": "unknown"}
+        severity = 5
+        risk_label = "high_risk"
+    elif any(token in lowered for token in medium_risk):
+        severity = 4
+        risk_label = "security"
+    elif any(token in lowered for token in low_risk):
+        severity = 2
+        risk_label = "general"
+    else:
+        severity = 3
+        risk_label = "unknown"
+
+    reason_codes = _keyword_reason_codes(text)
+    reason_codes.append("fallback_rule_based")
+
+    return {
+        "severity": severity,
+        "type": risk_label,
+        "confidence": 0.45,
+        "reason_codes": reason_codes,
+        "fallback_used": True,
+        "model_version": _GEMINI_MODEL,
+        "prompt_version": _PROMPT_VERSION,
+    }
 
 def _extract_json_dict(raw_text: str) -> dict[str, Any] | None:
     if not raw_text:
@@ -74,7 +113,30 @@ def _normalize_ai_result(payload: dict[str, Any], fallback_text: str) -> dict:
     if not isinstance(incident_type, str) or not incident_type.strip():
         incident_type = fallback["type"]
 
-    return {"severity": severity, "type": incident_type}
+    raw_confidence = payload.get("confidence", fallback["confidence"])
+    try:
+        confidence = float(raw_confidence)
+    except (TypeError, ValueError):
+        confidence = float(fallback["confidence"])
+    confidence = max(0.0, min(confidence, 1.0))
+
+    raw_reason_codes = payload.get("reason_codes")
+    if isinstance(raw_reason_codes, list):
+        reason_codes = [code for code in raw_reason_codes if isinstance(code, str) and code.strip()]
+    else:
+        reason_codes = []
+    if not reason_codes:
+        reason_codes = list(fallback["reason_codes"])
+
+    return {
+        "severity": severity,
+        "type": incident_type,
+        "confidence": confidence,
+        "reason_codes": reason_codes,
+        "fallback_used": False,
+        "model_version": _GEMINI_MODEL,
+        "prompt_version": _PROMPT_VERSION,
+    }
 
 
 def _summarize_history(history: list[dict[str, Any]] | None) -> str:
@@ -114,14 +176,15 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict:
             "You are scoring campus safety incident reports. "
             "Use the current report and the recent incident history for context. "
             "Return ONLY valid JSON with this shape: "
-            "{\"severity\": <integer 1-5>, \"type\": \"<short label>\"}.\n\n"
+            "{\"severity\": <integer 1-5>, \"type\": \"<short label>\", "
+            "\"confidence\": <number 0-1>, \"reason_codes\": [\"<short_code>\"]}.\n\n"
             f"Current report:\n{text}\n\n"
             f"Recent incident history (most recent first):\n{history_text}"
         )
         model_cls = getattr(genai, "GenerativeModel", None)
         if not model_cls:
             raise RuntimeError("GenerativeModel class not found in genai module.")
-        model = model_cls("gemini-1.5-flash")
+        model = model_cls(_GEMINI_MODEL)
         response = model.generate_content(prompt)
         response_text = getattr(response, "text", "") or ""
         payload = _extract_json_dict(response_text)
@@ -173,8 +236,5 @@ def score_incident(data: str | dict, history: list[dict[str, Any]] | None = None
     text = _normalize_input(data)
     if not _GEMINI_API_KEY:
         return _fallback_score(text)
-    
-    # Get AI score and validate it
-    ai_result = _ai_score(text, history=history)
-    ai_result["severity"] = validate_score(text, ai_result["severity"])
-    return ai_result
+
+    return _ai_score(text, history=history)

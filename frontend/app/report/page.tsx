@@ -1,33 +1,17 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import Select from "react-select"
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet"
-import "leaflet/dist/leaflet.css"
-import L from "leaflet"
-
-delete (L.Icon.Default.prototype as any)._getIconUrl
-
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-})
+import { locationCoords } from "@/lib/location-coords"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-
-function LocationPicker({ setPosition }: any) {
-  useMapEvents({
-    click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng])
-    },
-  })
-  return null
-}
+const PENDING_EVENT_KEY = "hoosalert:pending-event"
+const ReportLocationMap = dynamic(() => import("@/components/report-location-map"), {
+  ssr: false,
+  loading: () => <div className="h-full w-full p-3 text-sm text-gray-600">Loading map...</div>,
+})
 
 export default function ReportPage() {
   const router = useRouter()
@@ -214,24 +198,33 @@ export default function ReportPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
+    const selectedLocationKey = typeof location?.value === "string" ? location.value : ""
+
     const finalIncident =
       incidentType?.value === "other"
         ? customIncident
         : incidentType?.label
 
     const finalLocation =
-      location?.value === "other"
+      selectedLocationKey === "other"
         ? selectedPosition
           ? `Lat: ${selectedPosition[0]}, Lng: ${selectedPosition[1]}`
           : ""
         : location?.label
 
+    const resolvedCoords =
+      selectedLocationKey === "other"
+        ? selectedPosition
+          ? { lat: selectedPosition[0], lng: selectedPosition[1] }
+          : null
+        : locationCoords[selectedLocationKey] || null
+
     const payload = {
     incidentType: finalIncident,
     location: finalLocation,
 
-    latitude: selectedPosition?.[0] || null,
-    longitude: selectedPosition?.[1] || null,
+    latitude: resolvedCoords?.lat ?? null,
+    longitude: resolvedCoords?.lng ?? null,
 
     computingId: computingId.trim(),
     }
@@ -249,12 +242,61 @@ export default function ReportPage() {
         body: JSON.stringify(payload),
       })
 
-      if (!response.ok) throw new Error("Failed to submit")
+      const result = await response.json().catch(() => null)
 
-      alert("Report submitted successfully!")
+      if (!response.ok) {
+        const detail =
+          result &&
+          typeof result === "object" &&
+          "detail" in result &&
+          typeof (result as { detail?: unknown }).detail === "string"
+            ? (result as { detail: string }).detail
+            : "Failed to submit"
+        throw new Error(detail)
+      }
+
+      const score =
+        result &&
+        typeof result === "object" &&
+        "score" in result &&
+        typeof (result as { score?: unknown }).score === "object"
+          ? (result as { score: { severity?: unknown; risk_label?: unknown } }).score
+          : null
+
+      const severity =
+        score && typeof score.severity === "number"
+          ? score.severity
+          : null
+      const riskLabel =
+        score && typeof score.risk_label === "string"
+          ? score.risk_label
+          : null
+
+      const scoreText =
+        severity !== null
+          ? ` Severity: ${severity}${riskLabel ? ` (${riskLabel})` : ""}.`
+          : ""
+
+      if (
+        result &&
+        typeof result === "object" &&
+        "incident" in result &&
+        typeof (result as { incident?: unknown }).incident === "object"
+      ) {
+        const nextEvent = {
+          incident: (result as { incident: unknown }).incident,
+          score:
+            "score" in result && typeof (result as { score?: unknown }).score === "object"
+              ? (result as { score: unknown }).score
+              : null,
+        }
+        sessionStorage.setItem(PENDING_EVENT_KEY, JSON.stringify(nextEvent))
+      }
+
+      alert(`Report submitted successfully!${scoreText}`)
       router.push("/")
     } catch (err) {
-      alert("Error submitting report")
+      alert(err instanceof Error ? err.message : "Error submitting report")
     } finally {
       setIsSubmitting(false)
     }
@@ -310,30 +352,10 @@ export default function ReportPage() {
           {location?.value === "other" && (
             <div className="mt-4">
               <div className="h-[300px] rounded-xl overflow-hidden border">
-                <MapContainer
-  center={[38.0336, -78.5080]}
-  zoom={15}
-  minZoom={14}
-  maxZoom={19}
-  maxBounds={[
-    [38.00, -78.55],  // southwest
-    [38.07, -78.45],  // northeast
-  ]}
-  maxBoundsViscosity={1.0}
-  scrollWheelZoom={true}
-  className="h-full w-full"
->
-                  <TileLayer
-                    attribution='&copy; OpenStreetMap'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-
-                  <LocationPicker setPosition={setSelectedPosition} />
-
-                  {selectedPosition && (
-                    <Marker position={selectedPosition} />
-                  )}
-                </MapContainer>
+                <ReportLocationMap
+                  selectedPosition={selectedPosition}
+                  setSelectedPosition={setSelectedPosition}
+                />
               </div>
 
               {selectedPosition && (
