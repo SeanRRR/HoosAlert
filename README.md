@@ -29,22 +29,3 @@ uva-alert-system/
 ├── infrastructure/
 │   └── docker-compose.yml
 ├── README.md
-## Inspect MongoDB (Local)
-
-From repo root (`C:\HoosAlert`), open a shell in the Mongo container:
-
-```powershell
-docker compose -f infrastructure/docker-compose.yml exec mongo mongosh
-```
-
-Then run:
-
-```javascript
-show dbs
-use hoos_alert
-show collections
-db.incidents.countDocuments()
-db.incidents.find().sort({ created_at: -1 }).limit(10).pretty()
-```
-
-If you are in a continuation prompt (`|`), press `Ctrl + C` once and rerun commands line-by-line.
