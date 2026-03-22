@@ -21,6 +21,10 @@ _TIMESTAMP_FIELDS = ("timestamp", "created_at", "scored_at")
 _LAT_FIELDS = ("latitude", "lat")
 _LON_FIELDS = ("longitude", "lng", "lon")
 _TEXT_FIELDS = ("description", "title", "incidentType", "incident_type", "risk_label", "location")
+_MIN_CONFIDENCE = 0.02
+_MAX_CONFIDENCE = 0.98
+_DISTANCE_DECAY_KM = 1.25
+_TIME_DECAY_HOURS = 16.0
 
 
 def _utc_now_iso() -> str:
@@ -194,8 +198,8 @@ def _distance_similarity(incident1: dict[str, Any], incident2: dict[str, Any]) -
     if None in (lat1, lon1, lat2, lon2):
         return None
     distance_km = _haversine_km(lat1, lon1, lat2, lon2)
-    # Exponential spatial decay with roughly 1 km half-life.
-    return math.exp(-distance_km / 1.0)
+    # Exponential spatial decay with a slightly slower drop-off than before.
+    return math.exp(-distance_km / _DISTANCE_DECAY_KM)
 
 
 def _time_similarity(incident1: dict[str, Any], incident2: dict[str, Any]) -> float | None:
@@ -204,8 +208,8 @@ def _time_similarity(incident1: dict[str, Any], incident2: dict[str, Any]) -> fl
     if ts1 is None or ts2 is None:
         return None
     delta_hours = abs((ts1 - ts2).total_seconds()) / 3600.0
-    # Exponential temporal decay with roughly 12 hour half-life.
-    return math.exp(-delta_hours / 12.0)
+    # Exponential temporal decay with a slightly slower drop-off than before.
+    return math.exp(-delta_hours / _TIME_DECAY_HOURS)
 
 
 def _weighted_average(components: dict[str, float | None], weights: dict[str, float]) -> float:
@@ -222,9 +226,37 @@ def _weighted_average(components: dict[str, float | None], weights: dict[str, fl
     return weighted_sum / total_weight
 
 
+def _information_coverage(components: dict[str, float | None], weights: dict[str, float]) -> float:
+    total_weight = sum(max(0.0, weight) for weight in weights.values())
+    if total_weight == 0:
+        return 0.0
+    present_weight = sum(
+        max(0.0, weights.get(name, 0.0))
+        for name, value in components.items()
+        if value is not None
+    )
+    return max(0.0, min(present_weight / total_weight, 1.0))
+
+
 def _calibrate_probability(raw_score: float) -> float:
     centered = raw_score - 0.55
     return 1.0 / (1.0 + math.exp(-6.0 * centered))
+
+
+def _apply_information_decay(score: float, coverage: float) -> float:
+    # Missing feature coverage should always slightly reduce confidence.
+    decay_factor = 0.85 + 0.15 * max(0.0, min(coverage, 1.0))
+    return score * decay_factor
+
+
+def _allow_extreme_confidence(incident1: dict[str, Any], incident2: dict[str, Any]) -> bool:
+    return bool(incident1.get("official_report")) or bool(incident2.get("official_report"))
+
+
+def _bound_confidence(score: float, *, allow_extremes: bool) -> float:
+    lower = 0.0 if allow_extremes else _MIN_CONFIDENCE
+    upper = 1.0 if allow_extremes else _MAX_CONFIDENCE
+    return max(lower, min(score, upper))
 
 
 def _top_reason_codes(components: dict[str, float | None]) -> list[str]:
@@ -254,14 +286,20 @@ def _deterministic_similarity(
         "risk_label": _risk_label_similarity(incident1, incident2),
     }
     weighted_score = _weighted_average(components, effective_weights)
-    calibrated = _calibrate_probability(weighted_score)
+    information_coverage = _information_coverage(components, effective_weights)
+    calibrated = _apply_information_decay(_calibrate_probability(weighted_score), information_coverage)
+
+    reason_codes = _top_reason_codes(components)
+    if information_coverage < 1.0:
+        reason_codes.append("information_decay_applied")
 
     return {
         "components": components,
         "weights": effective_weights,
+        "information_coverage": information_coverage,
         "raw_score": weighted_score,
         "calibrated_score": calibrated,
-        "reason_codes": _top_reason_codes(components),
+        "reason_codes": reason_codes,
     }
 
 
@@ -335,18 +373,21 @@ def incident_match_confidence(
         except Exception:
             reason_codes.append("gemini_similarity_unavailable")
 
+    allow_extremes = _allow_extreme_confidence(incident1, incident2)
     deduped_reason_codes = list(dict.fromkeys(reason_codes))
     return {
         "incident_1": incident1,
         "incident_2": incident2,
-        "confidence": round(max(0.0, min(final_confidence, 1.0)), 6),
+        "confidence": round(_bound_confidence(final_confidence, allow_extremes=allow_extremes), 6),
         "deterministic_score": round(deterministic["calibrated_score"], 6),
         "semantic_similarity": None if semantic_similarity is None else round(semantic_similarity, 6),
         "components": deterministic["components"],
         "weights": deterministic["weights"],
+        "information_coverage": round(deterministic["information_coverage"], 6),
         "reason_codes": deduped_reason_codes,
         "model_version": _confidence_model(),
         "prompt_version": _confidence_prompt_version(),
         "fallback_used": fallback_used,
+        "allow_extreme_confidence": allow_extremes,
         "scored_at": _utc_now_iso(),
     }
