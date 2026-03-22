@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 try:
     from google import genai  # google-genai
 except ImportError:
@@ -37,19 +39,33 @@ except ImportError:
 
     genai = _GenAICompat()
 
-_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-_PROMPT_VERSION = os.getenv("LLM_PROMPT_VERSION", "v2")
-_DEBUG_AI_SCORING = os.getenv("DEBUG_AI_SCORING", "").lower() in {"1", "true", "yes", "on"}
-
 # High-impact keywords for validation
 HIGH_IMPACT_KEYWORDS = ["fire", "weapon", "active", "medical", "unconscious", "shooter", "bomb"]
 _MAX_HISTORY_ITEMS = 25
 _GEMINI_CONTEXT_PATH = Path(__file__).resolve().parents[2] / "data" / "gemini_context.md"
+_BACKEND_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+load_dotenv(_BACKEND_ENV_PATH, override=False)
+
+
+def _gemini_api_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "")
+
+
+def _gemini_model() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def _prompt_version() -> str:
+    return os.getenv("LLM_PROMPT_VERSION", "v2")
+
+
+def _debug_ai_enabled() -> bool:
+    return os.getenv("DEBUG_AI_SCORING", "").lower() in {"1", "true", "yes", "on"}
 
 
 def _debug_ai(message: str) -> None:
-    if _DEBUG_AI_SCORING:
+    if _debug_ai_enabled():
         print(f"[ai-score-debug] {message}", file=sys.stderr)
 
 
@@ -68,9 +84,10 @@ def _load_gemini_context() -> str:
 
 
 def _build_genai_client() -> genai.Client:
-    if not _GEMINI_API_KEY:
+    api_key = _gemini_api_key()
+    if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured.")
-    return genai.Client(api_key=_GEMINI_API_KEY)
+    return genai.Client(api_key=api_key)
 
 
 def _response_text(response: Any) -> str:
@@ -160,8 +177,8 @@ def _fallback_score(text: str, history: list[dict[str, Any]] | None = None) -> d
         "risk_label": risk_label,
         "confidence": 0.45,
         "reason_codes": reason_codes,
-        "model_version": _GEMINI_MODEL,
-        "prompt_version": _PROMPT_VERSION,
+        "model_version": _gemini_model(),
+        "prompt_version": _prompt_version(),
         "context_count": context_count,
         "fallback_used": True,
         "scored_at": _utc_now_iso(),
@@ -231,8 +248,8 @@ def _normalize_ai_result(
         "risk_label": risk_label,
         "confidence": confidence,
         "reason_codes": reason_codes,
-        "model_version": _GEMINI_MODEL,
-        "prompt_version": _PROMPT_VERSION,
+        "model_version": _gemini_model(),
+        "prompt_version": _prompt_version(),
         "context_count": _context_count(history),
         "fallback_used": False,
         "scored_at": _utc_now_iso(),
@@ -286,7 +303,7 @@ def _ai_score(text: str, history: list[dict[str, Any]] | None = None) -> dict[st
             f"Recent incident history (most recent first):\n{history_text}"
         )
         client = _build_genai_client()
-        response = client.models.generate_content(model=_GEMINI_MODEL, contents=prompt)
+        response = client.models.generate_content(model=_gemini_model(), contents=prompt)
         response_text = _response_text(response)
         _debug_ai(f"Gemini raw response: {response_text!r}")
 
@@ -357,9 +374,9 @@ def _apply_score_validation(text: str, score: dict[str, Any]) -> dict[str, Any]:
     if "fallback_used" not in validated:
         validated["fallback_used"] = False
     if "model_version" not in validated:
-        validated["model_version"] = _GEMINI_MODEL
+        validated["model_version"] = _gemini_model()
     if "prompt_version" not in validated:
-        validated["prompt_version"] = _PROMPT_VERSION
+        validated["prompt_version"] = _prompt_version()
     if "risk_label" not in validated:
         validated["risk_label"] = "unknown"
     if "confidence" not in validated:
@@ -376,7 +393,7 @@ def score_incident(data: str | dict, history: list[dict[str, Any]] | None = None
     incident = _normalize_incident(data)
     text = _incident_to_text(incident)
 
-    if not _GEMINI_API_KEY:
+    if not _gemini_api_key():
         score = _fallback_score(text, history=history)
         return {"incident": incident, "score": _apply_score_validation(text, score)}
 

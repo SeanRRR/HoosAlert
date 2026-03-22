@@ -18,9 +18,9 @@ MOCK_DATA = {
 
 # --- TESTS FOR _ai_score ---
 
-@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic._gemini_api_key", return_value="test-key")
 @patch("src.ml.logic.genai.Client")
-def test_ai_score_success(mock_client_cls):
+def test_ai_score_success(mock_client_cls, _mock_api_key):
     """
     Test _ai_score when the Gemini API call succeeds.
     """
@@ -44,9 +44,9 @@ def test_ai_score_success(mock_client_cls):
     mock_client.models.generate_content.assert_called_once()
 
 
-@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic._gemini_api_key", return_value="test-key")
 @patch("src.ml.logic.genai.Client")
-def test_ai_score_failure(mock_client_cls):
+def test_ai_score_failure(mock_client_cls, _mock_api_key):
     """
     Test _ai_score when the Gemini API call fails.
     """
@@ -63,9 +63,9 @@ def test_ai_score_failure(mock_client_cls):
 
 # --- TESTS FOR score_incident ---
 
-@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic._gemini_api_key", return_value="test-key")
 @patch("src.ml.logic._ai_score")
-def test_score_incident_with_ai(mock_ai_score):
+def test_score_incident_with_ai(mock_ai_score, _mock_api_key):
     """
     Test score_incident when AI scoring works.
     """
@@ -92,9 +92,9 @@ def test_score_incident_with_ai(mock_ai_score):
     mock_ai_score.assert_called_once()
 
 
-@patch("src.ml.logic._GEMINI_API_KEY", "test-key")
+@patch("src.ml.logic._gemini_api_key", return_value="test-key")
 @patch("src.ml.logic._ai_score")
-def test_score_incident_fallback(mock_ai_score):
+def test_score_incident_fallback(mock_ai_score, _mock_api_key):
     """
     Test score_incident when AI scoring returns the fallback score.
     """
