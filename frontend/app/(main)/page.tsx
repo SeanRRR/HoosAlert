@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import type { MapReport } from "@/components/incident-live-map";
 import { Sidebar } from "@/components/sidebar";
+import { locationCoords } from "@/lib/location-coords";
 
 type IncidentPayload = {
   id?: string | number;
   _id?: string | number;
   title?: string;
   location?: string;
+  location_key?: string;
   latitude?: number | null;
   longitude?: number | null;
   lat?: number | null;
@@ -55,7 +57,8 @@ function toMapReport(payload: unknown): MapReport | null {
       ? eventPayload.incident
       : (eventPayload as IncidentPayload);
 
-  const coords = toCoords(incident);
+  const keyedCoords = incident.location_key ? locationCoords[incident.location_key] : null;
+  const coords = keyedCoords ? ([keyedCoords.lat, keyedCoords.lng] as [number, number]) : toCoords(incident);
   if (!coords) return null;
 
   const incidentId =

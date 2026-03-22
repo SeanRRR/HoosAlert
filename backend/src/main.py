@@ -4,6 +4,7 @@ from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,7 +21,11 @@ from src.ml.validator import validate_score
 from src.schemas.report_submission import ReportSubmission
 from src.socket_manager import manager
 
+
 app = FastAPI(title="HoosAlert Backend")
+
+class TweetPayload(BaseModel):
+    text: str
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +40,59 @@ class Report(BaseModel):
     title: str
     description: str
     location: str
+
+
+_TWEET_LOCATION_ALIASES: dict[str, str] = {
+    "alderman library": "alderman-library",
+    "alderman": "alderman-library",
+    "clemons library": "clemons-library",
+    "clemons": "clemons-library",
+    "shannon library": "shannon-library",
+    "shannon": "shannon-library",
+    "newcomb hall": "newcomb-hall",
+    "newcomb": "newcomb-hall",
+    "rotunda": "rotunda",
+    "lawn": "lawn",
+    "scott stadium": "scott-stadium",
+    "uva hospital": "uva-medical-center",
+    "student health": "student-health",
+}
+
+_TWEET_LOCATION_META: dict[str, dict[str, Any]] = {
+    "alderman-library": {"label": "Alderman Library", "latitude": 38.036811, "longitude": -78.505393},
+    "clemons-library": {"label": "Clemons Library", "latitude": 38.036316, "longitude": -78.506207},
+    "shannon-library": {"label": "Shannon Library", "latitude": 38.036506, "longitude": -78.50531},
+    "newcomb-hall": {"label": "Newcomb Hall", "latitude": 38.0370, "longitude": -78.5050},
+    "rotunda": {"label": "The Rotunda", "latitude": 38.0365, "longitude": -78.5034},
+    "lawn": {"label": "The Lawn", "latitude": 38.0360, "longitude": -78.5030},
+    "scott-stadium": {"label": "Scott Stadium", "latitude": 38.031203, "longitude": -78.513774},
+    "uva-medical-center": {"label": "UVA Medical Center", "latitude": 38.031244, "longitude": -78.498455},
+    "student-health": {"label": "Student Health", "latitude": 38.030351, "longitude": -78.503761},
+}
+
+
+def _resolve_tweet_location(text: str) -> tuple[str | None, str, float | None, float | None]:
+    normalized = text.lower()
+
+    matched_key: str | None = None
+    for phrase, key in _TWEET_LOCATION_ALIASES.items():
+        if phrase in normalized:
+            matched_key = key
+            break
+
+    if matched_key is None:
+        return None, "UVA Campus", None, None
+
+    location_meta = _TWEET_LOCATION_META.get(matched_key)
+    if not location_meta:
+        return matched_key, "UVA Campus", None, None
+
+    return (
+        matched_key,
+        str(location_meta.get("label", "UVA Campus")),
+        location_meta.get("latitude"),
+        location_meta.get("longitude"),
+    )
 
 
 def _utc_now_iso() -> str:
@@ -510,6 +568,31 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
     except Exception:
         manager.disconnect(websocket)
+
+@app.post("/inject_tweet")
+async def inject_tweet(payload: TweetPayload):
+    text = payload.text.strip()
+    severity = 5 if "shooter" in text.lower() or "attack" in text.lower() else 3
+    location_key, location_label, latitude, longitude = _resolve_tweet_location(text)
+
+    event_payload = {
+        "event_type": "tweet_injected",
+        "incident": {
+            "id": f"tweet-{datetime.now(timezone.utc).timestamp()}",
+            "title": text or "UVA Alert",
+            "location": location_label,
+            "location_key": location_key,
+            "latitude": latitude,
+            "longitude": longitude,
+            "severity": severity,
+            "risk_label": "critical" if severity == 5 else "medium",
+            "source": "tweet_injected",
+            "created_at": _utc_now_iso(),
+        },
+    }
+
+    await manager.broadcast(event_payload)
+    return {"ok": True}
 
 
 if __name__ == "__main__":
