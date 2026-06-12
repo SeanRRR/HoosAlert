@@ -1,5 +1,6 @@
 # HoosAlert
 
+```
 uva-alert-system/
 ├── frontend/
 │   ├── src/
@@ -29,6 +30,7 @@ uva-alert-system/
 ├── infrastructure/
 │   └── docker-compose.yml
 ├── README.md
+```
 
 
 ## Inspect MongoDB (Local)
